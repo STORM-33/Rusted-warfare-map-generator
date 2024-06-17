@@ -14,10 +14,10 @@ tile_sets = {"water_sand":       (2, 3, 39, 40, 41, 78, 80, 117, 118, 119, 156, 
              "ocean_deep_water": (0, 1, 1326, 1288, 1327, 1250, 1248, 1365, 1210, 1366, 1209, 1211, 1287, 1289)}
 
 
-initial_matrix = [[0, 1, 1, 0], [1, 1, 1, 1]]
+initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
 
 ID = range(0, 10000)
-map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix, 128, 180, "horizontal")
+map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix, 128, 180, "none")
 height, width = np.shape(map_matrix)
 
 

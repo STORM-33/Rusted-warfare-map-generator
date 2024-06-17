@@ -82,7 +82,6 @@ def generate_level(map_matrix, perlin_noise, level_type, level, min_perlin_value
                 min_distance = min_distance_to_next_level
             else:
                 continue
-
             perlin_value = perlin_noise[i, j]
             if perlin_value >= min_perlin_value:
                 min_dist_satisfied = bfs(map_matrix, (i, j), min_distance, level, level_type)
@@ -92,9 +91,49 @@ def generate_level(map_matrix, perlin_noise, level_type, level, min_perlin_value
     return new_map
 
 # Функция для отражения матрицы
-def mirror(matrix):
-    mirrored_matrix = matrix[::-1] + matrix
-    return mirrored_matrix
+def mirror(matrix, mirroring_option):
+    if mirroring_option in ["none", "horizontal", "vertical", "diagonal1", "diagonal2", "4-corners"]:
+        if mirroring_option == "none":
+            return matrix
+        elif mirroring_option == "horizontal":
+            n = len(matrix)
+            m = len(matrix[0])
+            mid = n // 2
+            for i in range(mid):
+                for j in range(m):
+                    matrix[n - 1 - i][j] = matrix[i][j]
+            return matrix
+        elif mirroring_option == "vertical":
+            n = len(matrix)
+            m = len(matrix[0])
+            mid = m // 2
+            for i in range(n):
+                for j in range(mid):
+                    matrix[i][m - 1 - j] = matrix[i][j]
+            return matrix
+        elif mirroring_option == "diagonal1":
+            n = len(matrix)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    matrix[j][i] = matrix[i][j]
+            return matrix
+        elif mirroring_option == "diagonal2":
+            return [[matrix[j][i] if j + i < len(matrix) else matrix[len(matrix)-1-i][len(matrix[0])-1-j] for i in range(len(matrix[0]))] for j in range(len(matrix))]
+        elif mirroring_option == "4-corners":
+            n = len(matrix)
+            m = len(matrix[0])
+            mid = n // 2
+            for i in range(mid):
+                for j in range(m):
+                    matrix[n - 1 - i][j] = matrix[i][j]
+            mid = m // 2
+            for i in range(n):
+                for j in range(mid):
+                    matrix[i][m - 1 - j] = matrix[i][j]
+            return matrix
+    else:
+        print("Mirroring option was defined incorrectly")
+        return matrix
 
 def visualize(matrix):
     # Создаем цветовую карту: 0 - зеленый, 1 - синий
@@ -502,14 +541,13 @@ def create_map_matrix(initial_matrix, height, width, mirroring):
     randomized_matrix = initial_matrix
     for i in range(6):
         subdivided_matrix = subdivide(randomized_matrix)
-        randomized_matrix = randomize(subdivided_matrix)
+        randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
+        m = np.array(randomized_matrix)
 
-    mirrored_matrix = mirror(randomized_matrix)
-    mirrored_matrix = scale_matrix(mirrored_matrix, height, width)
-
+    scaled_matrix = scale_matrix(randomized_matrix, height, width)
     perlin_map = perlin(height, width, octaves_num=5, seed=int(random.random() * 1000))
 
-    height_map2 = generate_level(np.array(mirrored_matrix), perlin_map, "height", level=2, min_perlin_value=-0.3)
+    height_map2 = generate_level(np.array(scaled_matrix), perlin_map, "height", level=2, min_perlin_value=-0.3)
     height_map3 = generate_level(height_map2, perlin_map, "height", level=3, min_perlin_value=-0.1)
     height_map4 = generate_level(height_map3, perlin_map, "height", level=4, min_perlin_value=0.1)
     height_map5 = generate_level(height_map4, perlin_map, "height", level=5, min_perlin_value=-0.25)
@@ -520,21 +558,15 @@ def create_map_matrix(initial_matrix, height, width, mirroring):
     height_map10, items_matrix = add_resource_pulls(height_map9, 9)
     height_map11, units_matrix = add_command_centers(height_map10, items_matrix, 3)
 
-    if mirroring == "vertical":
-        height_map11 = np.rot90(height_map11)
-        units_matrix = np.rot90(units_matrix)
-        items_matrix = np.rot90(items_matrix)
-
     return height_map11, items_matrix, units_matrix
 
 
 def main():
-    initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1]]
-    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 128, 160)
+    initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
+    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 200, 200, "4-corners")
     visualize_height_map(height_map)
 
 
 if __name__ == "__main__":
     main()
-
 
