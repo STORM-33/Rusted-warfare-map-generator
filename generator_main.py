@@ -3,21 +3,21 @@ import base64
 from procedural_map_generator_functions import *
 import numpy as np
 
-tile_sets = {"water_sand":       (2, 3, 39, 40, 41, 78, 80, 117, 118, 119, 156, 157, 195, 196),
-             "sand_grass":       (3, 4, 432, 433, 434, 471, 473, 510, 511, 512, 549, 550, 588, 589),
-             "grass_soil":       (4, 5, 633, 634, 635, 672, 674, 711, 712, 713, 750, 751, 789, 790),
-             "soil_swamp":       (5, 6, 1023, 1024, 1025, 1062, 1064, 1101, 1102, 1103, 1140, 1141, 1179, 1180),
-             "swamp_stone":      (6, 7, 1338, 1300, 1339, 1262, 1260, 1377, 1222, 1378, 1221, 1223, 1299, 1301),
-             "stone_ice":        (7, 8, 627, 628, 629, 666, 668, 705, 706, 707, 744, 745, 783, 784),
-             "ice_snow":         (8, 9, 1134, 1096, 1135, 1058, 1056, 1173, 1018, 1174, 1017, 1019, 1095, 1097),
-             "deep_water_water": (1, 2, 1329, 1291, 1330, 1253, 1251, 1368, 1213, 1369, 1212, 1214, 1290, 1292),
-             "ocean_deep_water": (0, 1, 1326, 1288, 1327, 1250, 1248, 1365, 1210, 1366, 1209, 1211, 1287, 1289)}
+tile_sets = {"water_sand":       (31, 34, 6, 7, 8, 33, 35, 60, 61, 62, 87, 88, 114, 115),
+             "sand_grass":       (34, 37, 9, 10, 11, 36, 38, 63, 64, 65, 90, 91, 117, 118),
+             "grass_soil":       (37, 40, 12, 13, 14, 39, 41, 66, 67, 68, 93, 94, 120, 121),
+             "soil_swamp":       (40, 43, 15, 16, 17, 42, 44, 69, 70, 71, 96, 97, 123, 124),
+             "swamp_stone":      (43, 46, 18, 19, 20, 45, 47, 72, 73, 74, 99, 100, 126, 127),
+             "stone_snow":       (46, 49, 21, 22, 23, 48, 50, 75, 76, 77, 102, 103, 129, 130),
+             "snow_ice":         (49, 52, 24, 25, 26, 51, 53, 78, 79, 80, 105, 106, 132, 133),
+             "deep_water_water": (28, 31, 3, 4, 5, 30, 32, 57, 58, 59, 84, 85, 111, 112),
+             "ocean_deep_water": (83, 28, 0, 1, 2, 27, 29, 54, 55, 56, 81, 82, 108, 109)}
 
 
 initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
 
 ID = range(0, 10000)
-map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix, 128, 180, "none")
+map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix, 6, 256, 256, "none", 24, 3)
 height, width = np.shape(map_matrix)
 
 
@@ -47,19 +47,19 @@ terrain_levels = [
     (3, tile_sets["grass_soil"]),
     (4, tile_sets["soil_swamp"]),
     (5, tile_sets["swamp_stone"]),
-    (6, tile_sets["stone_ice"]),
-    (7, tile_sets["ice_snow"]),
+    (6, tile_sets["stone_snow"]),
+    (7, tile_sets["snow_ice"]),
 ]
 
-id_matrix = np.zeros((height, width))
+id_matrix = np.full((height, width), 83)
 
 for level, tile_set in reversed(terrain_levels):
-    id_matrix = fcking_smothing_function1(map_matrix, id_matrix, level, tile_set)
+    id_matrix = fcking_smoothing_function1(map_matrix, id_matrix, level, tile_set)
 
 
 for i in id_matrix:
     for j in i:
-        tile_data.append(ID[3805+int(j)].to_bytes(4, 'little'))
+        tile_data.append(ID[201+int(j)].to_bytes(4, 'little'))
 
 gzip_data = gzip.compress(b''.join(tile_data))
 base64_data_ground = base64.b64encode(gzip_data)

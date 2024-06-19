@@ -200,7 +200,7 @@ def get_all_neighbors(matrix, x, y):
     # Преобразуем список в кортеж кортежей размером 3x3
     return tuple(result[i:i+3] for i in range(0, len(result), 3))
 
-def fcking_smothing_function1(map_matrix, id_matrix, height_level, tile_set):
+def fcking_smoothing_function1(map_matrix, id_matrix, height_level, tile_set):
 
     neighbors_variants={(0, 0, 0, 0): 0,
                        (1, 0, 0, 0): 2,
@@ -369,13 +369,12 @@ def place_resource_pull(items_matrix, i, j):
                     items_matrix[ni][nj] = 23
 
 
-def add_resource_pulls(height_map, num_resource_pulls):
+def add_resource_pulls(height_map, num_resource_pulls, mirroring):
     rows, cols = height_map.shape
     available_tiles = []
     items_matrix = np.zeros((height_map.shape))
 
-    # Находим все подходящие тайлы в верхней половине карты
-    for i in range(2, rows // 2 - 2):
+    for i in range(2, rows - 2):
         for j in range(2, cols - 2):
             if height_map[i][j] >= 1:
                 valid = True
@@ -397,17 +396,19 @@ def add_resource_pulls(height_map, num_resource_pulls):
 
     # Размещаем ресурсные точки в верхней половине карты
     placed_pulls = []
+    pull_matrix = np.zeros((rows, cols))
+
     for i in range(num_resource_pulls):
         # Размещаем первую ресурсную точку в центре верхней половины карты
         if i == 0:
             center_i, center_j = rows // 4, cols // 2
             if (center_i, center_j) in available_tiles:
-                place_resource_pull(items_matrix, center_i, center_j)
+                pull_matrix[center_i][center_j] = 1 # place_resource_pull(items_matrix, center_i, center_j)
                 placed_pulls.append((center_i, center_j))
                 available_tiles.remove((center_i, center_j))
             else:
                 tile = available_tiles.pop(0)
-                place_resource_pull(items_matrix, tile[0], tile[1])
+                pull_matrix[tile[0]][tile[1]] = 1 # place_resource_pull(items_matrix, tile[0], tile[1])
                 placed_pulls.append(tile)
         # Размещаем остальные ресурсные точки равномерно
         else:
@@ -418,37 +419,15 @@ def add_resource_pulls(height_map, num_resource_pulls):
                 if min_distance > max_distance:
                     max_distance = min_distance
                     best_tile = tile
-            place_resource_pull(items_matrix, best_tile[0], best_tile[1])
+            pull_matrix[best_tile[0]][best_tile[1]] = 1 # place_resource_pull(items_matrix, best_tile[0], best_tile[1])
             placed_pulls.append(best_tile)
             available_tiles.remove(best_tile)
 
-    # Отзеркаливаем ресурсные точки на нижнюю половину карты
-    for i, j in placed_pulls:
-        mirror_i = rows - i - 1
-        mirror_j = j
-
-        # Проверяем цвета вокруг отзеркаленной точки
-        colors = set()
-        for di in range(-1, 2):
-            for dj in range(-1, 2):
-                ni, nj = mirror_i + di, mirror_j + dj
-                if 0 <= ni < rows and 0 <= nj < cols:
-                    colors.add(height_map[ni][nj])
-
-        # Если цвета не одинаковые, вычисляем преобладающий цвет
-        if len(colors) > 1:
-            predominant_color = max(colors, key=lambda x: sum(1 for di in range(-1, 2) for dj in range(-1, 2) if
-                                                              0 <= mirror_i + di < rows and 0 <= mirror_j + dj < cols and
-                                                              height_map[mirror_i + di][mirror_j + dj] == x))
-
-            # Изменяем отличающиеся цвета на преобладающий
-            for di in range(-1, 2):
-                for dj in range(-1, 2):
-                    ni, nj = mirror_i + di, mirror_j + dj
-                    if 0 <= ni < rows and 0 <= nj < cols and height_map[ni][nj] != predominant_color:
-                        height_map[ni][nj] = predominant_color
-
-        place_resource_pull(items_matrix, mirror_i, mirror_j)
+    pull_matrix = mirror(pull_matrix, mirroring)
+    for i in range(rows):
+        for j in range(cols):
+            if pull_matrix[i][j] == 1:
+                place_resource_pull(items_matrix, i, j)
 
     return height_map, items_matrix
 
@@ -537,15 +516,15 @@ def add_command_centers(height_map, items_matrix, num_of_command_centers_in_one_
 
 
 
-def create_map_matrix(initial_matrix, height, width, mirroring):
+def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, num_res_pulls, num_com_centers):
     randomized_matrix = initial_matrix
-    for i in range(6):
+    for i in range(num_upscales):
         subdivided_matrix = subdivide(randomized_matrix)
         randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
         m = np.array(randomized_matrix)
 
     scaled_matrix = scale_matrix(randomized_matrix, height, width)
-    perlin_map = perlin(height, width, octaves_num=5, seed=int(random.random() * 1000))
+    perlin_map = perlin(height, width, octaves_num=9, seed=int(random.random() * 1000))
 
     height_map2 = generate_level(np.array(scaled_matrix), perlin_map, "height", level=2, min_perlin_value=-0.3)
     height_map3 = generate_level(height_map2, perlin_map, "height", level=3, min_perlin_value=-0.1)
@@ -555,15 +534,16 @@ def create_map_matrix(initial_matrix, height, width, mirroring):
     height_map7 = generate_level(height_map6, perlin_map, "height", level=7, min_perlin_value=-0.45)
     height_map8 = generate_level(height_map7, perlin_map, "ocean", level=-1, min_perlin_value=-0.3)
     height_map9 = generate_level(height_map8, perlin_map, "ocean", level=-2, min_perlin_value=0.2)
-    height_map10, items_matrix = add_resource_pulls(height_map9, 9)
-    height_map11, units_matrix = add_command_centers(height_map10, items_matrix, 3)
+    height_map10, items_matrix = add_resource_pulls(height_map9, num_res_pulls, mirroring)
+    # height_map11, units_matrix = add_command_centers(height_map10, items_matrix, num_com_centers)
+    units_matrix = np.zeros((height, width))
 
-    return height_map11, items_matrix, units_matrix
+    return height_map10, items_matrix, units_matrix
 
 
 def main():
     initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
-    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 200, 200, "4-corners")
+    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 200, 200, "4-corners", 9, 3)
     visualize_height_map(height_map)
 
 
