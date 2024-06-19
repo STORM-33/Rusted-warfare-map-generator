@@ -543,7 +543,7 @@ def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, nu
 
 def main():
     initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
-    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 200, 200, "4-corners", 9, 3)
+    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 6, 200, 200, "4-corners", 9, 3)
     visualize_height_map(height_map)
 
 
