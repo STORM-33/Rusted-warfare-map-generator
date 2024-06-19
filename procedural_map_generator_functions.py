@@ -514,6 +514,14 @@ def add_command_centers(height_map, items_matrix, num_of_command_centers_in_one_
 
     return height_map, units_matrix
 
+def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
+    height, width = np.shape(map_matrix)
+    for i in range(height):
+        for j in range(width):
+            rand = random.random()
+            if get_all_neighbors(map_matrix, i, j) == ([0, 0, 0], [0, 0, 0], [0, 0, 0]) and freq > rand and map_matrix[i][j] > 0:
+                id_matrix[i][j] = random.choice(dec_tiles[map_matrix[i][j]])
+    return id_matrix
 
 
 def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, num_res_pulls, num_com_centers):

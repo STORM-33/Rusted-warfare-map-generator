@@ -13,6 +13,14 @@ tile_sets = {"water_sand":       (31, 34, 6, 7, 8, 33, 35, 60, 61, 62, 87, 88, 1
              "deep_water_water": (28, 31, 3, 4, 5, 30, 32, 57, 58, 59, 84, 85, 111, 112),
              "ocean_deep_water": (83, 28, 0, 1, 2, 27, 29, 54, 55, 56, 81, 82, 108, 109)}
 
+decoration_tiles = {1: (86, 89, 116),
+                    2: (110, 119),
+                    3: (95, 122),
+                    4: (98, 125),
+                    5: (101, 128),
+                    6: (104, 131),
+                    7: (107, 134)}
+
 
 initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
 
@@ -55,6 +63,7 @@ id_matrix = np.full((height, width), 83)
 
 for level, tile_set in reversed(terrain_levels):
     id_matrix = fcking_smoothing_function1(map_matrix, id_matrix, level, tile_set)
+id_matrix = add_decoration_tiles(id_matrix, map_matrix, decoration_tiles, 0.1)
 
 
 for i in id_matrix:
