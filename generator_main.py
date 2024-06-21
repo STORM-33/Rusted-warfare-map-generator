@@ -22,10 +22,17 @@ decoration_tiles = {1: (86, 89, 116),
                     7: (107, 134)}
 
 
-initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
+initial_matrix = [[1, 0, 1, 0, 1], [1, 1, 0, 1, 1], [1, 0, 1, 0, 1], [1, 1, 0, 1, 1], [1, 0, 1, 0, 1]]
 
 ID = range(0, 10000)
-map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix, 6, 256, 256, "none", 24, 3)
+map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix=initial_matrix,
+                                                           num_upscales=6,
+                                                           height=320, width=320,
+                                                           mirroring="diagonal1",
+                                                           num_res_pulls=24,
+                                                           num_com_centers=10,
+                                                           num_height_levels=7,
+                                                           num_ocean_levels=3)
 height, width = np.shape(map_matrix)
 
 
@@ -63,7 +70,7 @@ id_matrix = np.full((height, width), 83)
 
 for level, tile_set in reversed(terrain_levels):
     id_matrix = fcking_smoothing_function1(map_matrix, id_matrix, level, tile_set)
-id_matrix = add_decoration_tiles(id_matrix, map_matrix, decoration_tiles, 0.1)
+id_matrix = add_decoration_tiles(id_matrix, map_matrix, decoration_tiles, 0.05)
 
 
 for i in id_matrix:

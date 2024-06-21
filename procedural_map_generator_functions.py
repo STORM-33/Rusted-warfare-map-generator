@@ -4,6 +4,7 @@ from matplotlib.colors import ListedColormap
 import random
 from perlin_noise import PerlinNoise
 from collections import deque
+from scipy.spatial.distance import cdist
 
 
 # Функция для подсчета соседей другого цвета
@@ -374,9 +375,29 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
     available_tiles = []
     items_matrix = np.zeros((height_map.shape))
 
+    # Определение запрещенных зон в зависимости от типа отражения
+    forbidden_zones = set()
+    if mirroring == "horizontal":
+        for i in range(rows//2 - 1, rows//2 + 2):
+            forbidden_zones.update((i, j) for j in range(cols))
+    elif mirroring == "vertical":
+        for j in range(cols//2 - 1, cols//2 + 2):
+            forbidden_zones.update((i, j) for i in range(rows))
+    elif mirroring == "diagonal1":
+        for k in range(-1, 2):
+            forbidden_zones.update((i, i+k) for i in range(rows) if 0 <= i+k < cols)
+    elif mirroring == "diagonal2":
+        for k in range(-1, 2):
+            forbidden_zones.update((i, cols-1-i+k) for i in range(rows) if 0 <= cols-1-i+k < cols)
+    elif mirroring == "4-corners":
+        for i in range(rows//2 - 1, rows//2 + 2):
+            forbidden_zones.update((i, j) for j in range(cols))
+        for j in range(cols//2 - 1, cols//2 + 2):
+            forbidden_zones.update((i, j) for i in range(rows))
+
     for i in range(2, rows - 2):
         for j in range(2, cols - 2):
-            if height_map[i][j] >= 1:
+            if height_map[i][j] >= 1 and (i, j) not in forbidden_zones:
                 valid = True
                 for di in range(-2, 3):
                     for dj in range(-2, 3):
@@ -389,28 +410,24 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
                 if valid:
                     available_tiles.append((i, j))
 
-    # Если нет подходящих тайлов, выводим сообщение и возвращаем исходную карту
     if len(available_tiles) < num_resource_pulls:
         print("Недостаточно места для размещения заданного количества экстракторов")
-        return height_map
+        return height_map, items_matrix
 
-    # Размещаем ресурсные точки в верхней половине карты
     placed_pulls = []
     pull_matrix = np.zeros((rows, cols))
 
     for i in range(num_resource_pulls):
-        # Размещаем первую ресурсную точку в центре верхней половины карты
         if i == 0:
             center_i, center_j = rows // 4, cols // 2
             if (center_i, center_j) in available_tiles:
-                pull_matrix[center_i][center_j] = 1 # place_resource_pull(items_matrix, center_i, center_j)
+                pull_matrix[center_i][center_j] = 1
                 placed_pulls.append((center_i, center_j))
                 available_tiles.remove((center_i, center_j))
             else:
                 tile = available_tiles.pop(0)
-                pull_matrix[tile[0]][tile[1]] = 1 # place_resource_pull(items_matrix, tile[0], tile[1])
+                pull_matrix[tile[0]][tile[1]] = 1
                 placed_pulls.append(tile)
-        # Размещаем остальные ресурсные точки равномерно
         else:
             max_distance = float('-inf')
             best_tile = None
@@ -419,7 +436,7 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
                 if min_distance > max_distance:
                     max_distance = min_distance
                     best_tile = tile
-            pull_matrix[best_tile[0]][best_tile[1]] = 1 # place_resource_pull(items_matrix, best_tile[0], best_tile[1])
+            pull_matrix[best_tile[0]][best_tile[1]] = 1
             placed_pulls.append(best_tile)
             available_tiles.remove(best_tile)
 
@@ -432,87 +449,103 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
     return height_map, items_matrix
 
 
-def add_command_centers(height_map, items_matrix, num_of_command_centers_in_one_team):
-    rows, cols = height_map.shape
-    units_matrix = np.zeros((rows, cols), dtype=int)
-    team1_ids = [2285, 2286, 2287, 2288, 2289]
-    team2_ids = [2290, 2291, 2292, 2293, 2294]
+def add_com_centers(height_matrix, items_matrix, num_centers, mirror_type):
+    if mirror_type not in ['none', 'horizontal', 'vertical', 'diagonal1', 'diagonal2']:
+        return np.zeros_like(height_matrix)
 
-    # Находим все подходящие тайлы в верхней четверти карты
-    available_tiles = []
-    border_distance = int(rows * 0.1)  # Изменено с 0.2 на 0.1
-    for i in range(border_distance, rows // 4):  # Изменено с rows // 2 на rows // 4
-        for j in range(border_distance, cols - border_distance):
-            if height_map[i][j] >= 1 and items_matrix[i][j] == 0:
-                valid = True
-                for di in range(-2, 3):
-                    for dj in range(-2, 3):
-                        ni, nj = i + di, j + dj
-                        if 0 <= ni < rows // 4 and 0 <= nj < cols and (  # Изменено с rows // 2 на rows // 4
-                                height_map[ni][nj] != height_map[i][j] or items_matrix[ni][nj] != 0):
-                            valid = False
-                            break
-                    if not valid:
-                        break
-                if valid:
-                    available_tiles.append((i, j))
+    if mirror_type == 'none':
+        return np.zeros_like(height_matrix)
 
-    # Вычисляем минимальное расстояние между командными центрами
-    min_distance = int(cols / num_of_command_centers_in_one_team)
+    num_centers = num_centers/2
+    height, width = height_matrix.shape
+    units_matrix = np.zeros_like(items_matrix)
 
-    # Сортируем available_tiles по возрастанию расстояния до верхней границы
-    available_tiles.sort(key=lambda x: x[0])
+    # Calculate border margin (7% of map length)
+    margin = int(0.07 * height)
 
-    # Размещаем командные центры команды 1 в верхней половине карты
-    placed_centers_team1 = []
-    for i in range(num_of_command_centers_in_one_team):
-        best_tile = None
+    # Define valid area and preferred area for team 1
+    if mirror_type == 'horizontal':
+        valid_area = np.zeros_like(height_matrix, dtype=bool)
+        valid_area[margin:height // 2 - margin, margin:-margin] = True
+        preferred_area = valid_area.copy()
+        preferred_area[margin:margin * 2, :] = True
+    elif mirror_type == 'vertical':
+        valid_area = np.zeros_like(height_matrix, dtype=bool)
+        valid_area[margin:-margin, margin:width // 2 - margin] = True
+        preferred_area = valid_area.copy()
+        preferred_area[:, margin:margin * 2] = True
+    elif mirror_type == 'diagonal1':
+        valid_area = np.triu(np.ones_like(height_matrix, dtype=bool), k=margin)
+        valid_area[-margin:, :] = False
+        valid_area[:, -margin:] = False
+        preferred_area = np.zeros_like(height_matrix, dtype=bool)
+        preferred_area[margin:height // 4, -width // 4:-margin] = True
+    elif mirror_type == 'diagonal2':
+        valid_area = np.fliplr(np.triu(np.ones_like(height_matrix, dtype=bool), k=margin))
+        valid_area[-margin:, :] = False
+        valid_area[:, :margin] = False
+        preferred_area = np.zeros_like(height_matrix, dtype=bool)
+        preferred_area[margin:height // 4, margin:width // 4] = True
 
-        # Ищем тайл, удовлетворяющий минимальному расстоянию до уже размещенных центров
-        for tile in available_tiles:
-            distance_to_centers = min([abs(tile[0] - x) + abs(tile[1] - y) for x, y in placed_centers_team1],
-                                      default=float('inf'))
-            if distance_to_centers >= min_distance:
-                best_tile = tile
-                break
+    # Find valid positions
+    valid_positions = np.where(
+        (height_matrix > 1) &
+        (items_matrix == 0) &
+        valid_area
+    )
 
-        # Если не найден подходящий тайл, выбираем ближайший к верхней границе
-        if best_tile is None:
-            if available_tiles:
-                best_tile = available_tiles[0]
-            else:
-                print("Недостаточно места для размещения командного центра")
-                break
+    # Function to check if a position is valid for a command center
+    def is_valid_position(pos):
+        y, x = pos
+        region = height_matrix[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
+        items_region = items_matrix[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
+        return (region > 0).all() and (items_region == 0).all()
 
-        units_matrix[best_tile[0]][best_tile[1]] = team1_ids[i]
-        placed_centers_team1.append(best_tile)
-        available_tiles.remove(best_tile)
+    # Filter valid positions
+    valid_positions = [(y, x) for y, x in zip(*valid_positions) if is_valid_position((y, x))]
 
+    if len(valid_positions) < num_centers:
+        raise ValueError("Not enough valid positions for command centers")
 
-    #отзеркаливаем координаты коммандных центров
-    for i, (j, k) in enumerate(placed_centers_team1):
-        mirror_i = rows - j - 1
-        mirror_j = k
+    # Select positions with preference to the preferred area
+    selected_positions = []
+    preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
 
-        # Изменяем значения вокруг отзеркаленной точки на преобладающее значение в области 3х3
-        values = []
-        for di in range(-1, 2):
-            for dj in range(-1, 2):
-                ni, nj = mirror_i + di, mirror_j + dj
-                if 0 <= ni < rows and 0 <= nj < cols:
-                    values.append(height_map[ni][nj])
+    while len(selected_positions) < num_centers:
+        if preferred_positions and np.random.random() < 0.7:  # 70% chance to pick from preferred area
+            pos = preferred_positions.pop(np.random.randint(len(preferred_positions)))
+        else:
+            pos = valid_positions.pop(np.random.randint(len(valid_positions)))
 
-        predominant_value = max(set(values), key=values.count)
-        for di in range(-1, 2):
-            for dj in range(-1, 2):
-                ni, nj = mirror_i + di, mirror_j + dj
-                if 0 <= ni < rows and 0 <= nj < cols and items_matrix[ni][nj] == 0:
-                    height_map[ni][nj] = predominant_value
+        selected_positions.append(pos)
 
-        if i < len(team2_ids) and items_matrix[mirror_i][mirror_j] == 0:
-            units_matrix[mirror_i][mirror_j] = team2_ids[i]
+        # Remove nearby positions to maintain some distance
+        valid_positions = [p for p in valid_positions if cdist([pos], [p])[0][0] > height * 0.1]
+        preferred_positions = [p for p in preferred_positions if cdist([pos], [p])[0][0] > height * 0.1]
 
-    return height_map, units_matrix
+    # Place command centers for team 1
+    for i, (y, x) in enumerate(selected_positions):
+        units_matrix[y, x] = 101 + i
+
+    # Mirror command centers for team 2
+    if mirror_type == 'horizontal':
+        for y, x in selected_positions:
+            mirrored_y = height - 1 - y
+            units_matrix[mirrored_y, x] = units_matrix[y, x] + 5
+    elif mirror_type == 'vertical':
+        for y, x in selected_positions:
+            mirrored_x = width - 1 - x
+            units_matrix[y, mirrored_x] = units_matrix[y, x] + 5
+    elif mirror_type == 'diagonal1':
+        for y, x in selected_positions:
+            units_matrix[x, y] = units_matrix[y, x] + 5
+    elif mirror_type == 'diagonal2':
+        for y, x in selected_positions:
+            mirrored_y = width - 1 - x
+            mirrored_x = height - 1 - y
+            units_matrix[mirrored_y, mirrored_x] = units_matrix[y, x] + 5
+
+    return units_matrix
 
 def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
     height, width = np.shape(map_matrix)
@@ -524,29 +557,47 @@ def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
     return id_matrix
 
 
-def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, num_res_pulls, num_com_centers):
+def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, num_res_pulls, num_com_centers, num_height_levels, num_ocean_levels):
+    if not isinstance(initial_matrix, list):
+        raise ValueError("Initial matrix was defined incorrectly")
+    if num_upscales < 4 or num_upscales > 8:
+        raise ValueError("Number of upscales must be a number from 4 to 8")
+    if mirroring not in ["none", "horizontal", "vertical", "diagonal1", "diagonal2", "4-corners"]:
+        raise ValueError("Mirroring option was defined incorrectly")
+    if num_com_centers % 2 != 0 or num_com_centers > 10:
+        raise ValueError("Number of command centers must be an even number up to 10")
+    if num_height_levels < 1 or num_height_levels > 7:
+        raise ValueError("Number of height levels must be from 1 to 7")
+    if num_ocean_levels < 1 or num_ocean_levels > 3:
+        raise ValueError("Number of ocean levels must be from 1 to 3")
+
+
     randomized_matrix = initial_matrix
     for i in range(num_upscales):
         subdivided_matrix = subdivide(randomized_matrix)
         randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
-        m = np.array(randomized_matrix)
 
     scaled_matrix = scale_matrix(randomized_matrix, height, width)
     perlin_map = perlin(height, width, octaves_num=9, seed=int(random.random() * 1000))
+    height_map = np.array(scaled_matrix)
 
-    height_map2 = generate_level(np.array(scaled_matrix), perlin_map, "height", level=2, min_perlin_value=-0.3)
-    height_map3 = generate_level(height_map2, perlin_map, "height", level=3, min_perlin_value=-0.1)
-    height_map4 = generate_level(height_map3, perlin_map, "height", level=4, min_perlin_value=0.1)
-    height_map5 = generate_level(height_map4, perlin_map, "height", level=5, min_perlin_value=-0.25)
-    height_map6 = generate_level(height_map5, perlin_map, "height", level=6, min_perlin_value=-0.35)
-    height_map7 = generate_level(height_map6, perlin_map, "height", level=7, min_perlin_value=-0.45)
-    height_map8 = generate_level(height_map7, perlin_map, "ocean", level=-1, min_perlin_value=-0.3)
-    height_map9 = generate_level(height_map8, perlin_map, "ocean", level=-2, min_perlin_value=0.2)
-    height_map10, items_matrix = add_resource_pulls(height_map9, num_res_pulls, mirroring)
-    # height_map11, units_matrix = add_command_centers(height_map10, items_matrix, num_com_centers)
-    units_matrix = np.zeros((height, width))
+    perlin_change = 1/num_height_levels
+    perlin_value = -0.5
+    for level in range(2, num_height_levels+1):
+        perlin_value += perlin_change
+        height_map = generate_level(height_map, perlin_map, "height", level=level, min_perlin_value=perlin_value)
 
-    return height_map10, items_matrix, units_matrix
+    perlin_change = 1 / num_ocean_levels
+    perlin_value = -0.5
+
+    for level in list(range(-1, num_ocean_levels*-1, -1)):
+        perlin_value += perlin_change
+        height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
+
+    height_map, items_matrix = add_resource_pulls(height_map, num_res_pulls, mirroring)
+    units_matrix = add_com_centers(height_map, items_matrix, num_com_centers, mirroring)
+
+    return height_map, items_matrix, units_matrix
 
 
 def main():

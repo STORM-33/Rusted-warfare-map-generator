@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
-<map version="1.2" orientation="orthogonal" renderorder="right-down" width="256" height="256" tilewidth="20" tileheight="20" nextobjectid="1">
+<map version="1.2" orientation="orthogonal" renderorder="right-down" width="256" height="256" tilewidth="20" tileheight="20" nextobjectid="0">
   <properties>
     <property name="sw1" value="2285" />
     <property name="sw2" value="2286" />
@@ -329,86 +329,127 @@ IAICGhAEERDQgCCIgIAGBEEEBDQgCCIgoAFBEAEBDQiCCAhoQBBEQEADgiACAhoQBBEQ0IAgiICA
 BgRBBAQ0IAgiIKABQRABAQ0IgggIaEAQREBAA4IgAgIa+H8uH+9UTmN3RwAAAABJRU5ErkJggg==
 </property>
       <property name="forced_autotile" value="" />
-      <property name="layer" value="items" />
     </properties>
-    <image source="Downloads/rusted warfare v4.4 PC/export_items.png" width="200" height="200" />
+    <image source="export_items.png" width="200" height="200" />
     <terraintypes>
-      <terrain name="resp" tile="11" />
+      <terrain name="Res Pool" tile="11" />
+      <terrain name="Trees" tile="31" />
+      <terrain name="Grass" tile="19" />
+      <terrain name="Stone" tile="25" />
+      <terrain name="Holes" tile="28" />
+      <terrain name="Mud" tile="33" />
+      <terrain name="Cacti" tile="29" />
+      <terrain name="LargeRock" tile="54" />
     </terraintypes>
+    <tile id="0" terrain="-1,-1,-1,0" />
+    <tile id="1" terrain="-1,-1,0,0" />
+    <tile id="2" terrain="-1,-1,0,-1" />
+    <tile id="10" terrain="-1,0,-1,0" />
     <tile id="11" terrain="0,0,0,0">
       <properties>
         <property name="res_pool" value="" />
       </properties>
     </tile>
+    <tile id="12" terrain="0,-1,0,-1" />
+    <tile id="16" terrain="2,2,2,2" />
+    <tile id="17" terrain="2,2,2,2" />
+    <tile id="18" terrain="2,2,2,2" />
+    <tile id="19" terrain="2,2,2,2" />
+    <tile id="20" terrain="-1,0,-1,-1" />
+    <tile id="21" terrain="0,0,-1,-1" />
+    <tile id="22" terrain="0,-1,-1,-1" />
+    <tile id="23" terrain="3,3,3,3" />
+    <tile id="24" terrain="3,3,3,3" />
+    <tile id="25" terrain="3,3,3,3" />
+    <tile id="26" terrain="4,4,4,4" />
+    <tile id="27" terrain="4,4,4,4" />
+    <tile id="28" terrain="4,4,4,4" />
+    <tile id="29" terrain="6,6,6,6" />
     <tile id="30">
       <properties>
         <property name="team" value="none" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="31">
+    <tile id="31" terrain="1,1,1,1">
       <properties>
         <property name="team" value="none" />
         <property name="type" value="1.0" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="32">
+    <tile id="32" terrain="1,1,1,1">
       <properties>
         <property name="team" value="none" />
         <property name="type" value="1.1" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="40">
+    <tile id="33" terrain="5,5,5,5" />
+    <tile id="34" terrain="5,5,5,5" />
+    <tile id="35" terrain="5,5,5,5" />
+    <tile id="36" terrain="6,6,6,6" />
+    <tile id="37" terrain="6,6,6,6" />
+    <tile id="38" terrain="6,6,6,6" />
+    <tile id="39" terrain="6,6,6,6" />
+    <tile id="40" terrain="1,1,1,1">
       <properties>
         <property name="team" value="none" />
         <property name="type" value="1.2" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="41">
+    <tile id="41" terrain="1,1,1,1">
       <properties>
         <property name="team" value="none" />
         <property name="type" value="1.3" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="42">
+    <tile id="42" terrain="1,1,1,1">
       <properties>
         <property name="team" value="none" />
         <property name="type" value="1.4" />
         <property name="unit" value="tree" />
       </properties>
     </tile>
-    <tile id="43">
+    <tile id="43" terrain="-1,-1,-1,7">
       <properties>
         <property name="large-rock" value="" />
       </properties>
     </tile>
-    <tile id="44">
+    <tile id="44" terrain="-1,-1,7,7">
       <properties>
         <property name="large-rock" value="" />
       </properties>
     </tile>
-    <tile id="53">
+    <tile id="45" terrain="-1,-1,7,-1" />
+    <tile id="53" terrain="-1,7,-1,7">
       <properties>
         <property name="large-rock" value="" />
       </properties>
     </tile>
-    <tile id="54">
+    <tile id="54" terrain="7,7,7,7">
       <properties>
         <property name="large-rock" value="" />
       </properties>
     </tile>
-    <tile id="0" terrain="-1,-1,-1,0" />
-    <tile id="1" terrain="-1,-1,0,0" />
-    <tile id="2" terrain="-1,-1,0,-1" />
-    <tile id="10" terrain="-1,0,-1,0" />
-    <tile id="12" terrain="0,-1,0,-1" />
-    <tile id="20" terrain="-1,0,-1,-1" />
-    <tile id="21" terrain="0,0,-1,-1" />
-    <tile id="22" terrain="0,-1,-1,-1" />
+    <tile id="55" terrain="7,-1,7,-1" />
+    <tile id="63" terrain="-1,7,-1,-1" />
+    <tile id="64" terrain="7,7,-1,-1" />
+    <tile id="65" terrain="7,-1,-1,-1" />
+    <tile id="70" terrain="1,1,1,1" />
+    <tile id="71" terrain="1,1,1,1" />
+    <tile id="72" terrain="2,2,2,2" />
+    <tile id="73" terrain="2,2,2,2" />
+    <tile id="74" terrain="3,3,3,3" />
+    <tile id="75" terrain="3,3,3,3" />
+    <tile id="76" terrain="4,4,4,4" />
+    <tile id="77" terrain="4,4,4,4" />
+    <tile id="78" terrain="5,5,5,5" />
+    <tile id="79" terrain="5,5,5,5" />
+    <tile id="80" terrain="6,6,6,6" />
+    <tile id="81" terrain="6,6,6,6" />
   </tileset>
   <tileset firstgid="101" name="50pCommandCenter" columns="5" tilecount="50" tileheight="20" tilewidth="20">
     <properties>
@@ -1146,10 +1187,10 @@ YFpGszPdue7dCU1rr3cub76POhNMB17vTPv/xf3/B1O5baKCEwHVAAAAAElFTkSuQmCC
     <properties>
       <property name="embedded_png">
 iVBORw0KGgoAAAANSUhEUgAAAhwAAABkCAYAAADNEOn5AAAAAXNSR0IArs4c6QAAAARnQU1BAACx
-jwv8YQUAAAAJcEhZcwAADsIAAA7CARUoSoAAAAC0ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAb
-AQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIADgAAAFoAAABphwQAAQAAAGgAAAAAAAAA8nYBAOgD
-AADydgEA6AMAAHBhaW50Lm5ldCA1LjEAAwAAkAcABAAAADAyMzABoAMAAQAAAAEAAAAFoAQAAQAA
-AJIAAAAAAAAAAgABAAIABAAAAFI5OAACAAcABAAAADAxMDAAAAAAspYmjNFKHY0AAP7lSURBVHhe
+jwv8YQUAAAAJcEhZcwAADsEAAA7BAbiRa+0AAAC0ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAb
+AQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIADgAAAFoAAABphwQAAQAAAGgAAAAAAAAA2XYBAOgD
+AADZdgEA6AMAAHBhaW50Lm5ldCA1LjEAAwAAkAcABAAAADAyMzABoAMAAQAAAAEAAAAFoAQAAQAA
+AJIAAAAAAAAAAgABAAIABAAAAFI5OAACAAcABAAAADAxMDAAAAAAvjXVfbBNLrIAAP7lSURBVHhe
 3P1pkGRXlueHHd/Cw8Nj9diXjNxXbImtgK5qVFd1dVdvM6WZobrZ1AybRommD7IxDSmZTPxAk0Zm
 +iCTaMYvlMk4HJqGQ3LYJGcpijPTC6unqrq6u9Bd1QVUAUgAuSAzI2NfPBbfd53feX48bzgiEwkg
 aYLpn3h479133/H7Xrx7z/+ec+69sYGZ1zsSIJ673D0Saec/7B5F4Jqn9Y6Xf01k5feOpwX4wskb
@@ -2519,7 +2560,6 @@ YeuOy3Oud0T6unLS1RGNRCrtlszJNCzPa/nFt1gU2Pr+fgTCwX6YFvKwn4XiZ5GXS7a8peuEre/v
 R0gc7IdpISNdkw80KuzwG0Dxg3BeDOBpnBg4OeA3MrAy/IeSh/WiWR5wgsG5zfI+9at/yX43y2tW
 ehxzUgBQqijPMACfTfT/C3lhGt8Pg8ej4He3dvV71kbH3s1DVhvkoIk0hAjTA5OHlUQD+FnlcV9h
 nn0LuG/AfdwKN9KL/L8VnHAalHK28AAAAABJRU5ErkJggg==
-
 </property>
     </properties>
     <image source="AutoLight.png" width="540" height="100" trans="" />
