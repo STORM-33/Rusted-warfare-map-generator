@@ -377,6 +377,12 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
 
     # Определение запрещенных зон в зависимости от типа отражения
     forbidden_zones = set()
+    border_size = int(min(rows, cols) * 0.08)
+    for i in range(rows):
+        for j in range(cols):
+            if i < border_size or i >= rows - border_size or j < border_size or j >= cols - border_size:
+                forbidden_zones.add((i, j))
+
     if mirroring == "horizontal":
         for i in range(rows//2 - 1, rows//2 + 2):
             forbidden_zones.update((i, j) for j in range(cols))
@@ -439,12 +445,14 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
             pull_matrix[best_tile[0]][best_tile[1]] = 1
             placed_pulls.append(best_tile)
             available_tiles.remove(best_tile)
-
     pull_matrix = mirror(pull_matrix, mirroring)
+    rows = len(pull_matrix)
+    cols = len(pull_matrix[0])
     for i in range(rows):
         for j in range(cols):
             if pull_matrix[i][j] == 1:
                 place_resource_pull(items_matrix, i, j)
+
 
     return height_map, items_matrix
 
@@ -545,6 +553,7 @@ def add_com_centers(height_matrix, items_matrix, num_centers, mirror_type):
             mirrored_x = height - 1 - y
             units_matrix[mirrored_y, mirrored_x] = units_matrix[y, x] + 5
 
+    units_matrix = scale_matrix(units_matrix, items_matrix.shape[0], items_matrix.shape[1])
     return units_matrix
 
 def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
@@ -557,11 +566,9 @@ def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
     return id_matrix
 
 
-def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, num_res_pulls, num_com_centers, num_height_levels, num_ocean_levels):
+def create_map_matrix(initial_matrix, height, width, mirroring, num_res_pulls, num_com_centers, num_height_levels, num_ocean_levels):
     if not isinstance(initial_matrix, list):
         raise ValueError("Initial matrix was defined incorrectly")
-    if num_upscales < 4 or num_upscales > 8:
-        raise ValueError("Number of upscales must be a number from 4 to 8")
     if mirroring not in ["none", "horizontal", "vertical", "diagonal1", "diagonal2", "4-corners"]:
         raise ValueError("Mirroring option was defined incorrectly")
     if num_com_centers % 2 != 0 or num_com_centers > 10:
@@ -572,20 +579,32 @@ def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, nu
         raise ValueError("Number of ocean levels must be from 1 to 3")
 
 
+    upscales = [5, 10, 20, 40, 80, 160, 320, 640, 1280]
+    for i in range(len(upscales)):
+        if min(height, width) >= upscales[i]:
+            num_upscales = i
+    num_upscales += 1
+
+
     randomized_matrix = initial_matrix
     for i in range(num_upscales):
         subdivided_matrix = subdivide(randomized_matrix)
         randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
 
     scaled_matrix = scale_matrix(randomized_matrix, height, width)
+    print("Basic matrix created")
+
     perlin_map = perlin(height, width, octaves_num=9, seed=int(random.random() * 1000))
     height_map = np.array(scaled_matrix)
 
+    print("Perlin matrix generated")
     perlin_change = 1/num_height_levels
     perlin_value = -0.5
+
     for level in range(2, num_height_levels+1):
         perlin_value += perlin_change
         height_map = generate_level(height_map, perlin_map, "height", level=level, min_perlin_value=perlin_value)
+        print(f"Level {level} generated")
 
     perlin_change = 1 / num_ocean_levels
     perlin_value = -0.5
@@ -593,9 +612,12 @@ def create_map_matrix(initial_matrix, num_upscales, height, width, mirroring, nu
     for level in list(range(-1, num_ocean_levels*-1, -1)):
         perlin_value += perlin_change
         height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
+        print(f"Level {level} generated")
 
     height_map, items_matrix = add_resource_pulls(height_map, num_res_pulls, mirroring)
+    print("Resource pulls added")
     units_matrix = add_com_centers(height_map, items_matrix, num_com_centers, mirroring)
+    print("CC added")
 
     return height_map, items_matrix, units_matrix
 
