@@ -1,8 +1,8 @@
 import sys
 import os
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
-                             QSpinBox, QDialog, QTextEdit, QFileDialog, QGridLayout)
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QSize
+from PyQt5.QtWidgets import (QApplication, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
+                             QSpinBox, QDialog, QTextEdit, QFileDialog)
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, QSize
 from PyQt5.QtGui import QColor
 from generator_main import generate_map
 
@@ -115,7 +115,7 @@ class MapGeneratorGUI(QWidget):
                        [1, 0, 1, 0, 1],
                        [1, 1, 0, 1, 1],
                        [1, 0, 1, 0, 1]]
-        self.default_output_path = os.path.dirname(os.path.abspath(__file__))
+        self.default_output_path = os.path.dirname(sys.executable)
         self.initUI()
 
     def initUI(self):
@@ -197,7 +197,7 @@ class MapGeneratorGUI(QWidget):
         directory = QFileDialog.getExistingDirectory(self, "Select Output Directory", self.default_output_path)
         if directory:
             self.default_output_path = directory
-            self.output_path_label.setText(f"Output path: {self.default_output_path}")
+        self.output_path_label.setText(f"Output path: {self.default_output_path}")
 
     def create_spinbox(self, min_value, max_value, default_value, step=1):
         spinbox = QSpinBox()
