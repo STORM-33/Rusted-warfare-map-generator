@@ -1,10 +1,46 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, \
-    QSpinBox, QGridLayout, QDialog, QTextEdit, QFileDialog
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
+                             QSpinBox, QDialog, QTextEdit, QFileDialog, QGridLayout)
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QSize
 from PyQt5.QtGui import QColor
 from generator_main import generate_map
+
+
+from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt
+
+class FixedGridWidget(QWidget):
+    def __init__(self, rows, cols, button_size, spacing):
+        super().__init__()
+        self.rows = rows
+        self.cols = cols
+        self.button_size = button_size
+        self.spacing = spacing
+        self.buttons = []
+
+    def addButton(self, button, row, col):
+        button.setParent(self)
+        button.setFixedSize(self.button_size, self.button_size)
+        self.buttons.append((button, row, col))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.updateButtonPositions()
+
+    def updateButtonPositions(self):
+        for button, row, col in self.buttons:
+            x = col * (self.button_size + self.spacing)
+            y = row * (self.button_size + self.spacing)
+            button.move(x, y)
+
+    def sizeHint(self):
+        width = self.cols * (self.button_size + self.spacing) - self.spacing
+        height = self.rows * (self.button_size + self.spacing) - self.spacing
+        return QSize(width, height)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
 
 
 class MapGeneratorWorker(QThread):
@@ -65,6 +101,8 @@ class ColorChangingButton(QPushButton):
 class MapGeneratorGUI(QWidget):
     def __init__(self):
         super().__init__()
+        self.button_size = 40
+        self.grid_spacing = 5
         self.pattern_colors = {
             "Forest": (QColor("green"), QColor("blue")),
             "Winter": (QColor("white"), QColor("blue")),
@@ -83,8 +121,8 @@ class MapGeneratorGUI(QWidget):
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Добавляем область 5x5
-        self.grid_layout = QGridLayout()
+        # Создаем FixedGridWidget вместо QGridLayout
+        self.grid_widget = FixedGridWidget(5, 5, self.button_size, self.grid_spacing)
         self.buttons = []
         default_pattern = "Forest"
         color1, color2 = self.pattern_colors[default_pattern]
@@ -94,10 +132,18 @@ class MapGeneratorGUI(QWidget):
                 color = color1 if self.matrix[i][j] == 1 else color2
                 button = ColorChangingButton(color, i, j)
                 button.clicked.connect(self.button_clicked)
-                self.grid_layout.addWidget(button, i, j)
+                self.grid_widget.addButton(button, i, j)
                 row.append(button)
             self.buttons.append(row)
-        layout.addLayout(self.grid_layout)
+
+        # Создаем контейнер для центрирования сетки
+        grid_container = QWidget()
+        grid_container_layout = QVBoxLayout()
+        grid_container_layout.addWidget(self.grid_widget, alignment=Qt.AlignCenter)
+        grid_container_layout.setContentsMargins(0, 0, 0, 0)
+        grid_container.setLayout(grid_container_layout)
+
+        layout.addWidget(grid_container)
 
         self.output_path_label = QLabel(f"Output path: {self.default_output_path}")
         layout.addWidget(self.output_path_label)
