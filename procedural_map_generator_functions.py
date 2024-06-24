@@ -655,9 +655,8 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_res_pulls, n
 
 
 def main():
-    initial_matrix = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
-    height_map, items_matrix, units_matrix = create_map_matrix(initial_matrix, 6, 200, 200, "4-corners", 9, 3)
-    visualize_height_map(height_map)
+    perlin_map = perlin(200, 200, octaves_num=20, seed=int(random.random() * 1000))
+    visualize(perlin_map)
 
 
 if __name__ == "__main__":

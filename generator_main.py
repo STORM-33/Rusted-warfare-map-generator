@@ -86,11 +86,11 @@ def generate_map(initial_matrix,
     gzip_data = gzip.compress(b''.join(tile_data))
     base64_data_ground = base64.b64encode(gzip_data)
 
-    with open(f"generator_blueprint{pattern}.tmx", "r") as map_file:
+    with open(f"generator_blueprint{pattern}.tmx", "r", encoding='utf-8') as map_file:
         file = map_file.readlines()
 
         output_file = os.path.join(output_path, "generated_map.tmx")
-        with open(output_file, "w") as new_map:
+        with open(output_file, "w", encoding='utf-8') as new_map:
             for line in file:
                 if "<map version=\"1.2\" orientation=\"orthogonal\" renderorder=" in line:
                     line = f"<map version=\"1.2\" orientation=\"orthogonal\" renderorder=\"right-down\" width=\"{width}\" height=\"{height}\" tilewidth=\"20\" tileheight=\"20\" nextobjectid=\"1\">"
