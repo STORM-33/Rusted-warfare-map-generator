@@ -2,6 +2,7 @@ import gzip
 import base64
 from procedural_map_generator_functions import *
 import numpy as np
+import os
 
 
 def generate_map(initial_matrix,
@@ -11,7 +12,8 @@ def generate_map(initial_matrix,
                  num_com_centers,
                  num_height_levels,
                  num_ocean_levels,
-                 pattern):
+                 pattern,
+                 output_path):
 
     tile_sets = {"water_sand":       (31, 34, 6, 7, 8, 33, 35, 60, 61, 62, 87, 88, 114, 115),
                  "sand_grass":       (34, 37, 9, 10, 11, 36, 38, 63, 64, 65, 90, 91, 117, 118),
@@ -87,7 +89,8 @@ def generate_map(initial_matrix,
     with open(f"generator_blueprint{pattern}.tmx", "r") as map_file:
         file = map_file.readlines()
 
-        with open("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Rusted Warfare\\mods\\maps\\generated_map.tmx", "w") as new_map:
+        output_file = os.path.join(output_path, "generated_map.tmx")
+        with open(output_file, "w") as new_map:
             for line in file:
                 if "<map version=\"1.2\" orientation=\"orthogonal\" renderorder=" in line:
                     line = f"<map version=\"1.2\" orientation=\"orthogonal\" renderorder=\"right-down\" width=\"{width}\" height=\"{height}\" tilewidth=\"20\" tileheight=\"20\" nextobjectid=\"1\">"
@@ -104,7 +107,7 @@ def generate_map(initial_matrix,
                 elif "Units layer data" in line:
                     line = str(base64_data_units)[2:-1]
                 new_map.write(line)
-            print("Map has been created!")
+            print(f"Map has been created at: {output_file}")
 
 
 def main():
@@ -116,7 +119,8 @@ def main():
                  num_com_centers=10,
                  num_height_levels=7,
                  num_ocean_levels=3,
-                 pattern=5)
+                 pattern=5,
+                 output_path="")
 
 
 if __name__ == "__main__":

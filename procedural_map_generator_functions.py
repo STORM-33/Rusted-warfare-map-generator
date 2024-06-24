@@ -370,45 +370,53 @@ def place_resource_pull(items_matrix, i, j):
                     items_matrix[ni][nj] = 23
 
 
-def add_resource_pulls(height_map, num_resource_pulls, mirroring):
-    rows, cols = height_map.shape
+def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix):
+    rows, cols = randomized_matrix.shape
     available_tiles = []
-    items_matrix = np.zeros((height_map.shape))
+    pull_coordinates = []
 
     # Определение запрещенных зон в зависимости от типа отражения
     forbidden_zones = set()
     border_size = int(min(rows, cols) * 0.08)
+    center_forbidden_size = int(min(rows, cols) * 0.06)  # 6% от длины карты
+
     for i in range(rows):
         for j in range(cols):
             if i < border_size or i >= rows - border_size or j < border_size or j >= cols - border_size:
                 forbidden_zones.add((i, j))
 
     if mirroring == "horizontal":
-        for i in range(rows//2 - 1, rows//2 + 2):
+        center = rows // 2
+        for i in range(center - center_forbidden_size // 2, center + center_forbidden_size // 2):
             forbidden_zones.update((i, j) for j in range(cols))
     elif mirroring == "vertical":
-        for j in range(cols//2 - 1, cols//2 + 2):
+        center = cols // 2
+        for j in range(center - center_forbidden_size // 2, center + center_forbidden_size // 2):
             forbidden_zones.update((i, j) for i in range(rows))
     elif mirroring == "diagonal1":
-        for k in range(-1, 2):
-            forbidden_zones.update((i, i+k) for i in range(rows) if 0 <= i+k < cols)
+        for i in range(rows):
+            for j in range(max(0, i - center_forbidden_size // 2), min(cols, i + center_forbidden_size // 2)):
+                forbidden_zones.add((i, j))
     elif mirroring == "diagonal2":
-        for k in range(-1, 2):
-            forbidden_zones.update((i, cols-1-i+k) for i in range(rows) if 0 <= cols-1-i+k < cols)
+        for i in range(rows):
+            for j in range(max(0, cols - 1 - i - center_forbidden_size // 2),
+                           min(cols, cols - 1 - i + center_forbidden_size // 2)):
+                forbidden_zones.add((i, j))
     elif mirroring == "4-corners":
-        for i in range(rows//2 - 1, rows//2 + 2):
+        center_row, center_col = rows // 2, cols // 2
+        for i in range(center_row - center_forbidden_size // 2, center_row + center_forbidden_size // 2):
             forbidden_zones.update((i, j) for j in range(cols))
-        for j in range(cols//2 - 1, cols//2 + 2):
+        for j in range(center_col - center_forbidden_size // 2, center_col + center_forbidden_size // 2):
             forbidden_zones.update((i, j) for i in range(rows))
 
     for i in range(2, rows - 2):
         for j in range(2, cols - 2):
-            if height_map[i][j] >= 1 and (i, j) not in forbidden_zones:
+            if randomized_matrix[i][j] == 1 and (i, j) not in forbidden_zones:
                 valid = True
                 for di in range(-2, 3):
                     for dj in range(-2, 3):
                         ni, nj = i + di, j + dj
-                        if height_map[ni][nj] != height_map[i][j]:
+                        if randomized_matrix[ni][nj] != randomized_matrix[i][j]:
                             valid = False
                             break
                     if not valid:
@@ -418,7 +426,7 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
 
     if len(available_tiles) < num_resource_pulls:
         print("Недостаточно места для размещения заданного количества экстракторов")
-        return height_map, items_matrix
+        return items_matrix
 
     placed_pulls = []
     pull_matrix = np.zeros((rows, cols))
@@ -445,69 +453,72 @@ def add_resource_pulls(height_map, num_resource_pulls, mirroring):
             pull_matrix[best_tile[0]][best_tile[1]] = 1
             placed_pulls.append(best_tile)
             available_tiles.remove(best_tile)
-    pull_matrix = mirror(pull_matrix, mirroring)
-    rows = len(pull_matrix)
-    cols = len(pull_matrix[0])
-    for i in range(rows):
-        for j in range(cols):
-            if pull_matrix[i][j] == 1:
-                place_resource_pull(items_matrix, i, j)
 
+    pull_matrix = mirror(pull_matrix, mirroring)
+
+    # Масштабирование координат экстракторов
+    scale_factor_x = height_map.shape[1] / randomized_matrix.shape[1]
+    scale_factor_y = height_map.shape[0] / randomized_matrix.shape[0]
+
+    for i in range(pull_matrix.shape[0]):
+        for j in range(pull_matrix.shape[1]):
+            if pull_matrix[i][j] == 1:
+                scaled_i = int(i * scale_factor_y)
+                scaled_j = int(j * scale_factor_x)
+                place_resource_pull(items_matrix, scaled_i, scaled_j)
 
     return height_map, items_matrix
 
 
-def add_com_centers(height_matrix, items_matrix, num_centers, mirror_type):
+def add_com_centers(randomized_matrix, num_centers, mirror_type, height_map_shape):
     if mirror_type not in ['none', 'horizontal', 'vertical', 'diagonal1', 'diagonal2']:
-        return np.zeros_like(height_matrix)
+        return np.zeros(height_map_shape)
 
     if mirror_type == 'none':
-        return np.zeros_like(height_matrix)
+        return np.zeros(height_map_shape)
 
-    num_centers = num_centers/2
-    height, width = height_matrix.shape
-    units_matrix = np.zeros_like(items_matrix)
+    num_centers = num_centers // 2
+    height, width = randomized_matrix.shape
+    units_matrix = np.zeros_like(randomized_matrix)
 
     # Calculate border margin (7% of map length)
     margin = int(0.07 * height)
 
     # Define valid area and preferred area for team 1
     if mirror_type == 'horizontal':
-        valid_area = np.zeros_like(height_matrix, dtype=bool)
+        valid_area = np.zeros_like(randomized_matrix, dtype=bool)
         valid_area[margin:height // 2 - margin, margin:-margin] = True
         preferred_area = valid_area.copy()
         preferred_area[margin:margin * 2, :] = True
     elif mirror_type == 'vertical':
-        valid_area = np.zeros_like(height_matrix, dtype=bool)
+        valid_area = np.zeros_like(randomized_matrix, dtype=bool)
         valid_area[margin:-margin, margin:width // 2 - margin] = True
         preferred_area = valid_area.copy()
         preferred_area[:, margin:margin * 2] = True
     elif mirror_type == 'diagonal1':
-        valid_area = np.triu(np.ones_like(height_matrix, dtype=bool), k=margin)
+        valid_area = np.triu(np.ones_like(randomized_matrix, dtype=bool), k=margin)
         valid_area[-margin:, :] = False
         valid_area[:, -margin:] = False
-        preferred_area = np.zeros_like(height_matrix, dtype=bool)
+        preferred_area = np.zeros_like(randomized_matrix, dtype=bool)
         preferred_area[margin:height // 4, -width // 4:-margin] = True
     elif mirror_type == 'diagonal2':
-        valid_area = np.fliplr(np.triu(np.ones_like(height_matrix, dtype=bool), k=margin))
+        valid_area = np.fliplr(np.triu(np.ones_like(randomized_matrix, dtype=bool), k=margin))
         valid_area[-margin:, :] = False
         valid_area[:, :margin] = False
-        preferred_area = np.zeros_like(height_matrix, dtype=bool)
+        preferred_area = np.zeros_like(randomized_matrix, dtype=bool)
         preferred_area[margin:height // 4, margin:width // 4] = True
 
     # Find valid positions
     valid_positions = np.where(
-        (height_matrix > 1) &
-        (items_matrix == 0) &
+        (randomized_matrix == 1) &
         valid_area
     )
 
     # Function to check if a position is valid for a command center
     def is_valid_position(pos):
         y, x = pos
-        region = height_matrix[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
-        items_region = items_matrix[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
-        return (region > 0).all() and (items_region == 0).all()
+        region = randomized_matrix[max(0, y - 2):y + 3, max(0, x - 2):x + 3]
+        return (region == 1).all()
 
     # Filter valid positions
     valid_positions = [(y, x) for y, x in zip(*valid_positions) if is_valid_position((y, x))]
@@ -531,30 +542,46 @@ def add_com_centers(height_matrix, items_matrix, num_centers, mirror_type):
         valid_positions = [p for p in valid_positions if cdist([pos], [p])[0][0] > height * 0.1]
         preferred_positions = [p for p in preferred_positions if cdist([pos], [p])[0][0] > height * 0.1]
 
-    # Place command centers for team 1
-    for i, (y, x) in enumerate(selected_positions):
-        units_matrix[y, x] = 101 + i
+    # Scale factor for coordinates
+    scale_y = height_map_shape[0] / randomized_matrix.shape[0]
+    scale_x = height_map_shape[1] / randomized_matrix.shape[1]
 
-    # Mirror command centers for team 2
+    # Create scaled units matrix
+    scaled_units_matrix = np.zeros(height_map_shape, dtype=int)
+
+    # Place and scale command centers for team 1
+    for i, (y, x) in enumerate(selected_positions):
+        scaled_y = int(y * scale_y)
+        scaled_x = int(x * scale_x)
+        scaled_units_matrix[scaled_y, scaled_x] = 101 + i
+
+    # Mirror and scale command centers for team 2
     if mirror_type == 'horizontal':
         for y, x in selected_positions:
             mirrored_y = height - 1 - y
-            units_matrix[mirrored_y, x] = units_matrix[y, x] + 5
+            scaled_y = int(mirrored_y * scale_y)
+            scaled_x = int(x * scale_x)
+            scaled_units_matrix[scaled_y, scaled_x] = scaled_units_matrix[int(y * scale_y), int(x * scale_x)] + 5
     elif mirror_type == 'vertical':
         for y, x in selected_positions:
             mirrored_x = width - 1 - x
-            units_matrix[y, mirrored_x] = units_matrix[y, x] + 5
+            scaled_y = int(y * scale_y)
+            scaled_x = int(mirrored_x * scale_x)
+            scaled_units_matrix[scaled_y, scaled_x] = scaled_units_matrix[int(y * scale_y), int(x * scale_x)] + 5
     elif mirror_type == 'diagonal1':
         for y, x in selected_positions:
-            units_matrix[x, y] = units_matrix[y, x] + 5
+            scaled_y = int(x * scale_y)
+            scaled_x = int(y * scale_x)
+            scaled_units_matrix[scaled_y, scaled_x] = scaled_units_matrix[int(y * scale_y), int(x * scale_x)] + 5
     elif mirror_type == 'diagonal2':
         for y, x in selected_positions:
             mirrored_y = width - 1 - x
             mirrored_x = height - 1 - y
-            units_matrix[mirrored_y, mirrored_x] = units_matrix[y, x] + 5
+            scaled_y = int(mirrored_y * scale_y)
+            scaled_x = int(mirrored_x * scale_x)
+            scaled_units_matrix[scaled_y, scaled_x] = scaled_units_matrix[int(y * scale_y), int(x * scale_x)] + 5
 
-    units_matrix = scale_matrix(units_matrix, items_matrix.shape[0], items_matrix.shape[1])
-    return units_matrix
+    return scaled_units_matrix
 
 def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
     height, width = np.shape(map_matrix)
@@ -591,6 +618,7 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_res_pulls, n
         subdivided_matrix = subdivide(randomized_matrix)
         randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
 
+    randomized_matrix = np.array(randomized_matrix)
     scaled_matrix = scale_matrix(randomized_matrix, height, width)
     print("Basic matrix created")
 
@@ -614,10 +642,14 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_res_pulls, n
         height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
         print(f"Level {level} generated")
 
-    height_map, items_matrix = add_resource_pulls(height_map, num_res_pulls, mirroring)
+    items_matrix = np.zeros_like(height_map)
+    height_map, items_matrix = add_resource_pulls(randomized_matrix, num_res_pulls, mirroring, height_map, items_matrix)
     print("Resource pulls added")
-    units_matrix = add_com_centers(height_map, items_matrix, num_com_centers, mirroring)
+
+    units_matrix = add_com_centers(randomized_matrix, num_com_centers, mirroring, height_map.shape)
     print("CC added")
+
+
 
     return height_map, items_matrix, units_matrix
 

@@ -1,8 +1,50 @@
 import sys
+import os
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, \
-    QSpinBox, QGridLayout
+    QSpinBox, QGridLayout, QDialog, QTextEdit, QFileDialog
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor
 from generator_main import generate_map
+
+
+class MapGeneratorWorker(QThread):
+    progress_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal()
+
+    def __init__(self, generate_map_func, **kwargs):
+        super().__init__()
+        self.generate_map_func = generate_map_func
+        self.kwargs = kwargs
+
+    def run(self):
+        # Redirect print statements to progress_signal
+        def custom_print(*args, **kwargs):
+            self.progress_signal.emit(' '.join(map(str, args)))
+
+        import builtins
+        builtins.print = custom_print
+
+        try:
+            self.generate_map_func(**self.kwargs)
+        finally:
+            # Restore original print function
+            builtins.print = print
+            self.finished_signal.emit()
+
+
+class ProgressWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Map Generation Progress")
+        self.text_edit = QTextEdit(self)
+        self.text_edit.setReadOnly(True)
+        layout = QVBoxLayout()
+        layout.addWidget(self.text_edit)
+        self.setLayout(layout)
+        self.setModal(True)
+
+    def append_text(self, text):
+        self.text_edit.append(text)
 
 
 class ColorChangingButton(QPushButton):
@@ -35,6 +77,7 @@ class MapGeneratorGUI(QWidget):
                        [1, 0, 1, 0, 1],
                        [1, 1, 0, 1, 1],
                        [1, 0, 1, 0, 1]]
+        self.default_output_path = os.path.dirname(os.path.abspath(__file__))
         self.initUI()
 
     def initUI(self):
@@ -55,6 +98,13 @@ class MapGeneratorGUI(QWidget):
                 row.append(button)
             self.buttons.append(row)
         layout.addLayout(self.grid_layout)
+
+        self.output_path_label = QLabel(f"Output path: {self.default_output_path}")
+        layout.addWidget(self.output_path_label)
+
+        select_path_button = QPushButton("Select output directory")
+        select_path_button.clicked.connect(self.select_output_directory)
+        layout.addWidget(select_path_button)
 
         height = self.create_spinbox(50, 640, 160)
         layout.addLayout(self.create_input("Height (50-640):", "height", height))
@@ -96,6 +146,12 @@ class MapGeneratorGUI(QWidget):
 
         # Применяем начальное отражение
         self.update_matrix()
+
+    def select_output_directory(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory", self.default_output_path)
+        if directory:
+            self.default_output_path = directory
+            self.output_path_label.setText(f"Output path: {self.default_output_path}")
 
     def create_spinbox(self, min_value, max_value, default_value, step=1):
         spinbox = QSpinBox()
@@ -172,14 +228,38 @@ class MapGeneratorGUI(QWidget):
         num_ocean_levels = self.findChild(QSpinBox, "num_ocean_levels").value()
         pattern = list(self.pattern_colors.keys()).index(self.pattern_combo.currentText()) + 1
 
-        generate_map(initial_matrix=initial_matrix,
-                     height=height, width=width,
-                     mirroring=mirroring,
-                     num_res_pulls=num_res_pulls,
-                     num_com_centers=num_com_centers,
-                     num_height_levels=num_height_levels,
-                     num_ocean_levels=num_ocean_levels,
-                     pattern=pattern)
+        output_path = self.default_output_path
+
+        # Create and show progress window
+        self.progress_window = ProgressWindow(self)
+        self.progress_window.show()
+
+        # Create and start worker thread
+        self.worker = MapGeneratorWorker(
+            generate_map,
+            initial_matrix=initial_matrix,
+            height=height, width=width,
+            mirroring=mirroring,
+            num_res_pulls=num_res_pulls,
+            num_com_centers=num_com_centers,
+            num_height_levels=num_height_levels,
+            num_ocean_levels=num_ocean_levels,
+            pattern=pattern,
+            output_path=output_path
+        )
+        self.worker.progress_signal.connect(self.progress_window.append_text)
+        self.worker.finished_signal.connect(self.on_generation_finished)
+        self.worker.start()
+
+    def on_generation_finished(self):
+        self.progress_window.append_text("Map generation completed. This window will close in 3 seconds.")
+        QTimer.singleShot(3000, self.close_progress_window)
+
+    def close_progress_window(self):
+        if self.progress_window:
+            self.progress_window.close()
+            self.progress_window = None
+        self.worker = None
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
