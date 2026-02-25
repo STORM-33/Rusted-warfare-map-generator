@@ -373,6 +373,8 @@ class MapGeneratorGUI(QWidget):
         self.stacked_widget.setCurrentIndex(0)
 
 if __name__ == '__main__':
+    from wizard_gui import MainWindow
     app = QApplication(sys.argv)
-    ex = MapGeneratorGUI()
+    window = MainWindow()
+    window.show()
     sys.exit(app.exec_())

@@ -101,12 +101,12 @@ def mirror(matrix, mirroring):
         return arr
     elif mirroring == "diagonal2":
         n = arr.shape[0]
-        result = arr.copy()
+        source = arr.copy()
         for i in range(n):
             for j in range(n):
                 if j + i >= n:
-                    result[j][i] = arr[n - 1 - i][n - 1 - j]
-        return result
+                    arr[j][i] = source[n - 1 - i][n - 1 - j]
+        return arr
     elif mirroring == "both":
         mid_r = arr.shape[0] // 2
         arr[arr.shape[0] - mid_r:] = arr[:mid_r][::-1]
@@ -337,18 +337,100 @@ def _select_spaced_positions(available_tiles, num_positions, rows, cols):
     tiles = np.array(available_tiles)
     placed_idx = []
 
-    # First: pick tile closest to centroid of available tiles
-    centroid = tiles.mean(axis=0)
-    first = np.argmin(np.abs(tiles - centroid).sum(axis=1))
+    # First: pick a random tile
+    first = random.randint(0, len(tiles) - 1)
     placed_idx.append(first)
 
     for _ in range(1, num_positions):
         placed = tiles[placed_idx]
         dists = np.abs(tiles[:, None] - placed[None, :]).sum(axis=2).min(axis=1)
         dists[placed_idx] = -1
-        placed_idx.append(np.argmax(dists))
+
+        # Pick randomly from the top candidates weighted by distance
+        valid_mask = dists > 0
+        valid_dists = dists[valid_mask]
+        valid_indices = np.where(valid_mask)[0]
+        weights = valid_dists / valid_dists.sum()
+        chosen = np.random.choice(valid_indices, p=weights)
+        placed_idx.append(chosen)
 
     return [tuple(tiles[i]) for i in placed_idx]
+
+
+def _get_mirrored_positions(i, j, rows, cols, mirroring):
+    """Return all positions (including original) that a point maps to after mirroring."""
+    positions = [(i, j)]
+    if mirroring == "horizontal":
+        positions.append((rows - 1 - i, j))
+    elif mirroring == "vertical":
+        positions.append((i, cols - 1 - j))
+    elif mirroring == "diagonal1":
+        positions.append((j, i))
+    elif mirroring == "diagonal2":
+        positions.append((rows - 1 - j, cols - 1 - i))
+    elif mirroring == "both":
+        positions.append((rows - 1 - i, j))
+        positions.append((i, cols - 1 - j))
+        positions.append((rows - 1 - i, cols - 1 - j))
+    # Deduplicate (positions on mirror axis map to themselves)
+    return list(set(positions))
+
+
+def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, min_pool_distance=4):
+    """Check if a 3x3 pool can be placed at the given position on the height map."""
+    h_rows, h_cols = height_map.shape
+    if scaled_i - 1 < 0 or scaled_i + 1 >= h_rows or scaled_j - 1 < 0 or scaled_j + 1 >= h_cols:
+        return False
+    pool_area = height_map[scaled_i - 1:scaled_i + 2, scaled_j - 1:scaled_j + 2]
+    if np.any(pool_area <= 0):
+        return False
+    for pi, pj in placed_positions:
+        if abs(scaled_i - pi) < min_pool_distance and abs(scaled_j - pj) < min_pool_distance:
+            return False
+    return True
+
+
+def _find_mirror_axis_positions(randomized_matrix, mirroring):
+    """Find valid positions that lie exactly on the mirror axis (map to themselves)."""
+    rows, cols = randomized_matrix.shape
+    axis_tiles = []
+
+    if mirroring == "horizontal":
+        i = rows // 2
+        for j in range(2, cols - 2):
+            axis_tiles.append((i, j))
+    elif mirroring == "vertical":
+        j = cols // 2
+        for i in range(2, rows - 2):
+            axis_tiles.append((i, j))
+    elif mirroring == "diagonal1":
+        for i in range(2, min(rows, cols) - 2):
+            axis_tiles.append((i, i))
+    elif mirroring == "diagonal2":
+        for i in range(2, min(rows, cols) - 2):
+            axis_tiles.append((i, cols - 1 - i))
+    elif mirroring == "both":
+        # Center point only
+        axis_tiles.append((rows // 2, cols // 2))
+
+    # Filter to land tiles with valid 5x5 surroundings
+    valid = []
+    for i, j in axis_tiles:
+        if i < 2 or i >= rows - 2 or j < 2 or j >= cols - 2:
+            continue
+        if randomized_matrix[i][j] != 1:
+            continue
+        all_land = True
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
+                if randomized_matrix[i + di][j + dj] != 1:
+                    all_land = False
+                    break
+            if not all_land:
+                break
+        if all_land:
+            valid.append((i, j))
+    return valid
 
 
 def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix):
@@ -357,27 +439,60 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
     forbidden_zones = _get_forbidden_zones(rows, cols, mirroring)
     available_tiles = _find_valid_resource_positions(randomized_matrix, forbidden_zones)
 
-    if len(available_tiles) < num_resource_pulls:
-        logger.warning("Not enough space to place the specified number of resource pulls")
-        return items_matrix
+    if not available_tiles:
+        logger.warning("No valid positions for resource pulls")
+        return height_map, items_matrix
 
-    placed_pulls = _select_spaced_positions(available_tiles, num_resource_pulls, rows, cols)
+    scale_factor_x = height_map.shape[1] / cols
+    scale_factor_y = height_map.shape[0] / rows
 
-    pull_matrix = np.zeros((rows, cols))
-    for i, j in placed_pulls:
-        pull_matrix[i][j] = 1
+    # Shuffle candidates for randomness
+    random.shuffle(available_tiles)
 
-    pull_matrix = mirror(pull_matrix, mirroring)
+    placed_positions = []  # scaled positions of all placed pools (including mirrored)
 
-    scale_factor_x = height_map.shape[1] / randomized_matrix.shape[1]
-    scale_factor_y = height_map.shape[0] / randomized_matrix.shape[0]
+    for ci, cj in available_tiles:
+        if len(placed_positions) >= num_resource_pulls:
+            break
 
-    for i in range(pull_matrix.shape[0]):
-        for j in range(pull_matrix.shape[1]):
-            if pull_matrix[i][j] == 1:
-                scaled_i = int(i * scale_factor_y)
-                scaled_j = int(j * scale_factor_x)
-                place_resource_pull(items_matrix, scaled_i, scaled_j)
+        remaining = num_resource_pulls - len(placed_positions)
+
+        # Compute all mirrored positions for this candidate
+        mirrored = _get_mirrored_positions(ci, cj, rows, cols, mirroring)
+        scaled_positions = [(int(mi * scale_factor_y), int(mj * scale_factor_x)) for mi, mj in mirrored]
+
+        # Skip if this group would overshoot the target
+        if len(scaled_positions) > remaining:
+            continue
+
+        # All mirrored copies must be valid
+        all_valid = all(
+            _is_valid_pool_position(si, sj, height_map, placed_positions)
+            for si, sj in scaled_positions
+        )
+        if not all_valid:
+            continue
+
+        # Place all mirrored copies
+        for si, sj in scaled_positions:
+            placed_positions.append((si, sj))
+            place_resource_pull(items_matrix, si, sj)
+
+    # Second pass: fill remaining slots with on-axis single pools
+    if len(placed_positions) < num_resource_pulls and mirroring != "none":
+        axis_tiles = _find_mirror_axis_positions(randomized_matrix, mirroring)
+        random.shuffle(axis_tiles)
+        for ci, cj in axis_tiles:
+            if len(placed_positions) >= num_resource_pulls:
+                break
+            si = int(ci * scale_factor_y)
+            sj = int(cj * scale_factor_x)
+            if _is_valid_pool_position(si, sj, height_map, placed_positions):
+                placed_positions.append((si, sj))
+                place_resource_pull(items_matrix, si, sj)
+
+    if len(placed_positions) < num_resource_pulls:
+        logger.warning(f"Could only place {len(placed_positions)} of {num_resource_pulls} resource pulls")
 
     return height_map, items_matrix
 
@@ -407,6 +522,15 @@ def _find_valid_cc_positions(randomized_matrix, mirroring, margin):
         valid_area[:, :margin] = False
         preferred_area = np.zeros_like(randomized_matrix, dtype=bool)
         preferred_area[margin:height // 4, margin:width // 4] = True
+    elif mirroring == 'both':
+        valid_area = np.zeros_like(randomized_matrix, dtype=bool)
+        valid_area[margin:height // 2 - margin, margin:width // 2 - margin] = True
+        preferred_area = valid_area.copy()
+        preferred_area[margin:margin * 2, margin:margin * 2] = True
+    elif mirroring == 'none':
+        valid_area = np.zeros_like(randomized_matrix, dtype=bool)
+        valid_area[margin:-margin, margin:-margin] = True
+        preferred_area = valid_area.copy()
     else:
         return [], None
 
@@ -438,43 +562,69 @@ def _mirror_command_centers(selected_positions, mirroring, randomized_matrix, he
     for y, x in selected_positions:
         team1_val = scaled_units_matrix[int(y * scale_y), int(x * scale_x)]
         if mirroring == 'horizontal':
-            mirrored_y = height - 1 - y
-            scaled_y = int(mirrored_y * scale_y)
-            scaled_x = int(x * scale_x)
+            mirrors = [(height - 1 - y, x)]
         elif mirroring == 'vertical':
-            mirrored_x = width - 1 - x
-            scaled_y = int(y * scale_y)
-            scaled_x = int(mirrored_x * scale_x)
+            mirrors = [(y, width - 1 - x)]
         elif mirroring == 'diagonal1':
-            scaled_y = int(x * scale_y)
-            scaled_x = int(y * scale_x)
+            mirrors = [(x, y)]
         elif mirroring == 'diagonal2':
-            mirrored_y = width - 1 - x
-            mirrored_x = height - 1 - y
-            scaled_y = int(mirrored_y * scale_y)
-            scaled_x = int(mirrored_x * scale_x)
+            mirrors = [(width - 1 - x, height - 1 - y)]
+        elif mirroring == 'both':
+            mirrors = [
+                (height - 1 - y, x),
+                (y, width - 1 - x),
+                (height - 1 - y, width - 1 - x),
+            ]
+        elif mirroring == 'none':
+            continue
         else:
             continue
-        scaled_units_matrix[scaled_y, scaled_x] = team1_val + 5
+        for my, mx in mirrors:
+            sy = int(my * scale_y)
+            sx = int(mx * scale_x)
+            scaled_units_matrix[sy, sx] = team1_val + 5
 
     return scaled_units_matrix
 
 
-def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_shape):
-    if mirroring not in ['horizontal', 'vertical', 'diagonal1', 'diagonal2']:
-        return np.zeros(height_map_shape)
+def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_shape, items_matrix=None):
+    if mirroring not in ['horizontal', 'vertical', 'diagonal1', 'diagonal2', 'both', 'none']:
+        logger.warning(f"Unsupported mirroring mode for command centers: {mirroring}")
+        return np.zeros(height_map_shape, dtype=int)
 
-    num_centers = num_centers // 2
+    if mirroring == 'both':
+        num_centers = num_centers // 4
+    elif mirroring != 'none':
+        num_centers = num_centers // 2
     height = randomized_matrix.shape[0]
     margin = int(CC_MARGIN_RATIO * height)
 
     valid_positions, preferred_area = _find_valid_cc_positions(randomized_matrix, mirroring, margin)
 
+    # Filter out positions that overlap with resource pools
+    if items_matrix is not None:
+        scale_y = height_map_shape[0] / randomized_matrix.shape[0]
+        scale_x = height_map_shape[1] / randomized_matrix.shape[1]
+        cc_clearance = 2  # tiles of clearance around a CC to avoid resource pools
+
+        def _overlaps_resource_pool(pos):
+            sy = int(pos[0] * scale_y)
+            sx = int(pos[1] * scale_x)
+            y_min = max(0, sy - cc_clearance)
+            y_max = min(items_matrix.shape[0], sy + cc_clearance + 1)
+            x_min = max(0, sx - cc_clearance)
+            x_max = min(items_matrix.shape[1], sx + cc_clearance + 1)
+            return np.any(items_matrix[y_min:y_max, x_min:x_max] != 0)
+
+        valid_positions = [p for p in valid_positions if not _overlaps_resource_pool(p)]
+        preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
+    else:
+        preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
+
     if len(valid_positions) < num_centers:
         raise ValueError("Not enough valid positions for command centers")
 
     selected_positions = []
-    preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
 
     while len(selected_positions) < num_centers:
         if preferred_positions and np.random.random() < 0.7:
@@ -550,7 +700,7 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pul
     perlin_change = 1 / num_ocean_levels
     perlin_value = -0.5
 
-    for level in list(range(-1, num_ocean_levels*-1, -1)):
+    for level in list(range(-1, -num_ocean_levels - 1, -1)):
         perlin_value += perlin_change
         height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
         logger.info(f"Level {level} generated")
@@ -563,7 +713,7 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pul
     if preview_callback:
         preview_callback("resource_pulls", height_map.copy(), None, items_matrix.copy(), None)
 
-    units_matrix = add_command_centers(randomized_matrix, num_command_centers, mirroring, height_map.shape)
+    units_matrix = add_command_centers(randomized_matrix, num_command_centers, mirroring, height_map.shape, items_matrix)
     logger.info("Command centers added")
     if preview_callback:
         preview_callback("command_centers", height_map.copy(), None, items_matrix.copy(), units_matrix.copy())

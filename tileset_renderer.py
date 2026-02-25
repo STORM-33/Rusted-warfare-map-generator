@@ -24,12 +24,16 @@ LEVEL_FLAT_TILES = {
 class TilesetExtractor:
     """Parses a TMX blueprint and extracts tile images from embedded PNGs."""
 
+    ROCK_FIRSTGID = 336
+
     def __init__(self, tmx_path):
         self._ground_tiles = {}   # local_id -> 20x20 RGBA numpy array
+        self._wall_tiles = {}     # local_id -> 20x20 RGBA numpy array (large-rock)
         self._items_tiles = {}
         self._units_tiles = {}
         self._parse_tmx(tmx_path)
         self._ground_center_pixels = None
+        self._wall_center_pixels = None
         self._items_center_pixels = None
         self._units_center_pixels = None
 
@@ -73,6 +77,8 @@ class TilesetExtractor:
 
             if name == 'AutoLight':
                 self._ground_tiles = tiles
+            elif name == 'large-rock':
+                self._wall_tiles = tiles
             elif name == 'export_items':
                 self._items_tiles = tiles
             elif name == '50pCommandCenter':
@@ -84,6 +90,9 @@ class TilesetExtractor:
     def get_items_tile(self, local_id):
         return self._items_tiles.get(local_id)
 
+    def get_wall_tile(self, local_id):
+        return self._wall_tiles.get(local_id)
+
     def get_units_tile(self, local_id):
         return self._units_tiles.get(local_id)
 
@@ -92,6 +101,12 @@ class TilesetExtractor:
         if self._ground_center_pixels is None:
             self._ground_center_pixels = self._build_center_lut(self._ground_tiles)
         return self._ground_center_pixels
+
+    @property
+    def wall_center_pixels(self):
+        if self._wall_center_pixels is None:
+            self._wall_center_pixels = self._build_center_lut(self._wall_tiles)
+        return self._wall_center_pixels
 
     @property
     def items_center_pixels(self):
@@ -178,16 +193,22 @@ class MapRenderer:
         else:
             img = np.zeros((h * 20, w * 20, 4), dtype=np.uint8)
 
-        # Items layer (sparse — keep loop, skip zeros)
+        # Items layer (sparse — handles both resource items and wall tiles)
         if items_matrix is not None:
+            rock_gid = self.extractor.ROCK_FIRSTGID
             for y in range(h):
                 for x in range(w):
                     gid = int(items_matrix[y, x])
-                    if gid > 0:
-                        local_id = gid - 1
-                        tile = self.extractor.get_items_tile(local_id)
-                        if tile is not None:
-                            self._alpha_composite_tile(img, tile, y * 20, x * 20)
+                    if gid <= 0:
+                        continue
+                    if gid >= rock_gid:
+                        # Wall tile from large-rock tileset
+                        tile = self.extractor.get_wall_tile(gid - rock_gid)
+                    else:
+                        # Resource item from export_items tileset
+                        tile = self.extractor.get_items_tile(gid - 1)
+                    if tile is not None:
+                        self._alpha_composite_tile(img, tile, y * 20, x * 20)
 
         # Units layer (sparse — keep loop, skip zeros)
         if units_matrix is not None:
@@ -222,28 +243,46 @@ class MapRenderer:
         """Sampled rendering using center pixel LUTs — fast for large maps."""
         h, w = id_matrix.shape
         ground_lut = self.extractor.ground_center_pixels
+        wall_lut = self.extractor.wall_center_pixels
         items_lut = self.extractor.items_center_pixels
         units_lut = self.extractor.units_center_pixels
+        rock_gid = self.extractor.ROCK_FIRSTGID
 
         # Ground: id_matrix values are 0-based local IDs
         ids = id_matrix.astype(np.intp)
         ids = np.clip(ids, 0, len(ground_lut) - 1)
         img = ground_lut[ids]  # (h, w, 4)
 
-        # Items layer
-        if items_matrix is not None and len(items_lut) > 0:
+        # Items layer (handles both resource items and wall tiles)
+        if items_matrix is not None:
             item_ids = items_matrix.astype(np.intp)
-            mask = item_ids > 0
-            if mask.any():
-                local_ids = np.clip(item_ids - 1, 0, len(items_lut) - 1)
-                item_pixels = items_lut[local_ids]
-                alpha = item_pixels[:, :, 3:4].astype(np.float32) / 255.0
-                blended = (item_pixels[:, :, :3].astype(np.float32) * alpha +
-                           img[:, :, :3].astype(np.float32) * (1.0 - alpha))
-                img_copy = img.copy()
-                img_copy[mask, :3] = blended[mask].astype(np.uint8)
-                img_copy[mask, 3] = 255
-                img = img_copy
+            all_mask = item_ids > 0
+            if all_mask.any():
+                # Wall tiles (GID >= rock_gid)
+                wall_mask = all_mask & (item_ids >= rock_gid)
+                if wall_mask.any() and len(wall_lut) > 0:
+                    local_ids = np.clip(item_ids - rock_gid, 0, len(wall_lut) - 1)
+                    wall_pixels = wall_lut[local_ids]
+                    alpha = wall_pixels[:, :, 3:4].astype(np.float32) / 255.0
+                    blended = (wall_pixels[:, :, :3].astype(np.float32) * alpha +
+                               img[:, :, :3].astype(np.float32) * (1.0 - alpha))
+                    img_copy = img.copy()
+                    img_copy[wall_mask, :3] = blended[wall_mask].astype(np.uint8)
+                    img_copy[wall_mask, 3] = 255
+                    img = img_copy
+
+                # Resource items (GID < rock_gid)
+                res_mask = all_mask & (item_ids < rock_gid)
+                if res_mask.any() and len(items_lut) > 0:
+                    local_ids = np.clip(item_ids - 1, 0, len(items_lut) - 1)
+                    item_pixels = items_lut[local_ids]
+                    alpha = item_pixels[:, :, 3:4].astype(np.float32) / 255.0
+                    blended = (item_pixels[:, :, :3].astype(np.float32) * alpha +
+                               img[:, :, :3].astype(np.float32) * (1.0 - alpha))
+                    img_copy = img.copy()
+                    img_copy[res_mask, :3] = blended[res_mask].astype(np.uint8)
+                    img_copy[res_mask, 3] = 255
+                    img = img_copy
 
         # Units layer
         if units_matrix is not None and len(units_lut) > 0:

@@ -2,6 +2,7 @@ import gzip
 import base64
 import numpy as np
 import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Optional
 
@@ -99,28 +100,31 @@ def generate_map(initial_matrix,
     gzip_data = gzip.compress(tile_data)
     base64_data_ground = base64.b64encode(gzip_data)
 
-    with open(f"generator_blueprint{pattern}.tmx", "r", encoding='utf-8') as map_file:
-        file = map_file.readlines()
+    template_path = f"generator_blueprint{pattern}.tmx"
+    tree = ET.parse(template_path)
+    root = tree.getroot()
 
-        output_file = os.path.join(output_path, "generated_map.tmx")
-        with open(output_file, "w", encoding='utf-8') as new_map:
-            for line in file:
-                if "<map version=\"1.2\" orientation=\"orthogonal\" renderorder=" in line:
-                    line = f"<map version=\"1.2\" orientation=\"orthogonal\" renderorder=\"right-down\" width=\"{width}\" height=\"{height}\" tilewidth=\"20\" tileheight=\"20\" nextobjectid=\"1\">"
-                elif "<layer name=\"Ground\"" in line:
-                    line = f"  <layer name=\"Ground\" width=\"{width}\" height=\"{height}\">"
-                elif "<layer name=\"Items\"" in line:
-                    line = f"  <layer name=\"Items\" width=\"{width}\" height=\"{height}\">"
-                elif "<layer name=\"Units\"" in line:
-                    line = f"  <layer name=\"Units\" width=\"{width}\" height=\"{height}\">"
-                elif "Ground layer data" in line:
-                    line = str(base64_data_ground)[2:-1]
-                elif "Items layer data" in line:
-                    line = str(base64_data_items)[2:-1]
-                elif "Units layer data" in line:
-                    line = str(base64_data_units)[2:-1]
-                new_map.write(line)
-            print(f"Map has been created at: {output_file}")
+    root.set('width', str(width))
+    root.set('height', str(height))
+
+    layer_data_map = {
+        'Ground': base64_data_ground.decode('ascii'),
+        'Items': base64_data_items.decode('ascii'),
+        'Units': base64_data_units.decode('ascii'),
+    }
+
+    for layer in root.findall('layer'):
+        name = layer.get('name')
+        layer.set('width', str(width))
+        layer.set('height', str(height))
+        if name in layer_data_map:
+            data_elem = layer.find('data')
+            if data_elem is not None:
+                data_elem.text = layer_data_map[name]
+
+    output_file = os.path.join(output_path, "generated_map.tmx")
+    tree.write(output_file, encoding='UTF-8', xml_declaration=True)
+    print(f"Map has been created at: {output_file}")
 
 
 def main():
