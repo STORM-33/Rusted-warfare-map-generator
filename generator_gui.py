@@ -212,9 +212,9 @@ class MapGeneratorGUI(QWidget):
         self.pattern_combo.currentTextChanged.connect(self.update_colors)
         layout.addLayout(self.create_input("Tileset:", "pattern", self.pattern_combo))
 
-        generate_button = QPushButton("Generate map")
-        generate_button.clicked.connect(self.generate_map)
-        layout.addWidget(generate_button)
+        self.generate_button = QPushButton("Generate map")
+        self.generate_button.clicked.connect(self.generate_map)
+        layout.addWidget(self.generate_button)
 
         self.setLayout(layout)
         self.setWindowTitle('Map generator')
@@ -311,6 +311,9 @@ class MapGeneratorGUI(QWidget):
 
         output_path = self.default_output_path
 
+        # Disable button to prevent concurrent generation
+        self.generate_button.setEnabled(False)
+
         # Switch to preview page
         self.stacked_widget.setCurrentIndex(1)
         self.preview_widget.clear()
@@ -364,6 +367,7 @@ class MapGeneratorGUI(QWidget):
     def _on_worker_finished(self):
         self._generation_finished = True
         self.worker = None
+        self.generate_button.setEnabled(True)
 
     def _switch_to_grid(self):
         self.stacked_widget.setCurrentIndex(0)
