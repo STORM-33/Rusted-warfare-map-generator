@@ -1,6 +1,6 @@
 import sys
 import os
-import builtins
+import logging
 from collections import deque
 from PyQt5.QtWidgets import (QApplication, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
                              QSpinBox, QFileDialog, QWidget, QStackedWidget)
@@ -83,8 +83,7 @@ class MapGeneratorWorker(QThread):
         self.kwargs = kwargs
 
     def run(self):
-        original_print = builtins.print
-        builtins.print = lambda *a, **kw: None
+        logging.getLogger('procedural_map_generator_functions').setLevel(logging.WARNING)
 
         def preview_cb(stage, height_map, id_matrix, items_matrix, units_matrix):
             state = PreviewState(
@@ -99,7 +98,6 @@ class MapGeneratorWorker(QThread):
         try:
             self.generate_map_func(preview_callback=preview_cb, **self.kwargs)
         finally:
-            builtins.print = original_print
             self.finished_signal.emit()
 
 

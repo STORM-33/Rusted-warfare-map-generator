@@ -1,8 +1,11 @@
+import logging
 import numpy as np
 import random
 from perlin_noise import PerlinNoise
-from collections import deque
 from scipy.spatial.distance import cdist
+from scipy.ndimage import distance_transform_cdt
+
+logger = logging.getLogger(__name__)
 
 # --- Constants ---
 BORDER_MARGIN_RATIO = 0.08
@@ -24,128 +27,92 @@ RESOURCE_PULL_TILES = {
 }
 
 
-def count_neighbors(matrix, i, j):
-    neighbors = [(i-1, j), (i+1, j), (i, j-1), (i, j+1), (i-1, j-1), (i-1, j+1), (i+1, j-1), (i+1, j+1)]
-    count = 0
-    for x, y in neighbors:
-        if 0 <= x < len(matrix) and 0 <= y < len(matrix[0]) and matrix[x][y] != matrix[i][j]:
-            count += 1
-    return count
-
-
 def subdivide(matrix):
-    new_size_i = len(matrix) * 2
-    new_size_j = len(matrix[0]) * 2
-    new_matrix = [[" " for _ in range(new_size_j)] for _ in range(new_size_i)]
-
-    for i in range(len(matrix)):
-        for j in range(len(matrix[0])):
-            current_color = matrix[i][j]
-            new_matrix[i * 2][j * 2] = current_color
-            new_matrix[i * 2 + 1][j * 2] = current_color
-            new_matrix[i * 2][j * 2 + 1] = current_color
-            new_matrix[i * 2 + 1][j * 2 + 1] = current_color
-
-    return new_matrix
+    arr = np.asarray(matrix)
+    return np.repeat(np.repeat(arr, 2, axis=0), 2, axis=1)
 
 
 def randomize(matrix):
-    for i in range(len(matrix)):
-        for j in range(len(matrix[0])):
-            neighbors = count_neighbors(matrix, i, j)
-            if neighbors >= 3 and random.random() < 0.2 + 0.1 * (neighbors - 3):
-                matrix[i][j] = 1 - matrix[i][j]
-    return matrix
-
-
-def generate_level(map_matrix, perlin_noise, level_type, level, min_perlin_value, min_distance_to_prev_level=3, min_distance_to_next_level=4):
-    def bfs(map_matrix, start, max_distance, level, level_type):
-        rows, cols = map_matrix.shape
-        visited = np.zeros((rows, cols), dtype=bool)
-        queue = deque([(start, 0)])
-
-        neighbor_offsets = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-
-        while queue:
-            (i, j), dist = queue.popleft()
-            if dist > max_distance:
+    arr = np.asarray(matrix)
+    rows, cols = arr.shape
+    padded = np.pad(arr, 1, mode='edge')
+    # Count differing neighbors (8-connectivity)
+    neighbor_count = np.zeros((rows, cols), dtype=int)
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            if di == 0 and dj == 0:
                 continue
-            if level_type == 'height' and map_matrix[i][j] == level - 2:
-                return False
-            if level_type == 'ocean' and map_matrix[i][j] == level + 2:
-                return False
-            for di, dj in neighbor_offsets:
-                ni, nj = i + di, j + dj
-                if 0 <= ni < rows and 0 <= nj < cols and not visited[ni][nj]:
-                    if abs(ni - start[0]) + abs(nj - start[1]) <= max_distance:
-                        visited[ni][nj] = True
-                        queue.append(((ni, nj), dist + 1))
-        return True
+            neighbor_count += (padded[1+di:rows+1+di, 1+dj:cols+1+dj] != arr).astype(int)
+    # Probabilistic flip where neighbors >= 3
+    prob = 0.2 + 0.1 * (neighbor_count - 3)
+    prob = np.clip(prob, 0, 1)
+    flip_mask = (neighbor_count >= 3) & (np.random.random((rows, cols)) < prob)
+    result = arr.copy()
+    result[flip_mask] = 1 - result[flip_mask]
+    return result
 
+
+def generate_level(map_matrix, perlin_noise, level_type, level, min_perlin_value,
+                   min_distance_to_prev_level=3, min_distance_to_next_level=4):
     rows, cols = map_matrix.shape
     new_map = map_matrix.copy()
 
-    for i in range(rows):
-        for j in range(cols):
-            current_level = map_matrix[i, j]
-            if level_type == 'height' and current_level == level - 1:
-                min_distance = min_distance_to_prev_level
-            elif level_type == 'ocean' and current_level == level + 1:
-                min_distance = min_distance_to_next_level
-            else:
-                continue
-            perlin_value = perlin_noise[i, j]
-            if perlin_value >= min_perlin_value:
-                min_dist_satisfied = bfs(map_matrix, (i, j), min_distance, level, level_type)
-                if min_dist_satisfied:
-                    new_map[i, j] = level
+    if level_type == 'height':
+        candidate_mask = map_matrix == (level - 1)
+        forbidden_mask = map_matrix == (level - 2)
+        min_distance = min_distance_to_prev_level
+    else:  # ocean
+        candidate_mask = map_matrix == (level + 1)
+        forbidden_mask = map_matrix == (level + 2)
+        min_distance = min_distance_to_next_level
 
+    perlin_mask = perlin_noise >= min_perlin_value
+
+    if forbidden_mask.any():
+        dist = distance_transform_cdt(~forbidden_mask, metric='chessboard')
+        distance_ok = dist > min_distance
+    else:
+        distance_ok = np.ones((rows, cols), dtype=bool)
+
+    new_map[candidate_mask & perlin_mask & distance_ok] = level
     return new_map
 
 
 def mirror(matrix, mirroring):
+    arr = np.asarray(matrix)
     if mirroring not in ["none", "horizontal", "vertical", "diagonal1", "diagonal2", "both"]:
-        print("Mirroring option was defined incorrectly")
-        return matrix
+        logger.warning("Mirroring option was defined incorrectly")
+        return arr
 
     if mirroring == "none":
-        return matrix
+        return arr
     elif mirroring == "horizontal":
-        n = len(matrix)
-        m = len(matrix[0])
-        mid = n // 2
-        for i in range(mid):
-            for j in range(m):
-                matrix[n - 1 - i][j] = matrix[i][j]
-        return matrix
+        mid = arr.shape[0] // 2
+        arr[arr.shape[0] - mid:] = arr[:mid][::-1]
+        return arr
     elif mirroring == "vertical":
-        n = len(matrix)
-        m = len(matrix[0])
-        mid = m // 2
-        for i in range(n):
-            for j in range(mid):
-                matrix[i][m - 1 - j] = matrix[i][j]
-        return matrix
+        mid = arr.shape[1] // 2
+        arr[:, arr.shape[1] - mid:] = arr[:, :mid][:, ::-1]
+        return arr
     elif mirroring == "diagonal1":
-        n = len(matrix)
+        n = arr.shape[0]
         for i in range(n):
-            for j in range(i + 1, n):
-                matrix[j][i] = matrix[i][j]
-        return matrix
+            arr[i+1:, i] = arr[i, i+1:n]
+        return arr
     elif mirroring == "diagonal2":
-        return [[matrix[j][i] if j + i < len(matrix) else matrix[len(matrix)-1-i][len(matrix[0])-1-j] for i in range(len(matrix[0]))] for j in range(len(matrix))]
-    elif mirroring == "both":
-        n = len(matrix)
-        m = len(matrix[0])
-        mid = n // 2
-        for i in range(mid):
-            for j in range(m):
-                matrix[n - 1 - i][j] = matrix[i][j]
-        mid = m // 2
+        n = arr.shape[0]
+        result = arr.copy()
         for i in range(n):
-            for j in range(mid):
-                matrix[i][m - 1 - j] = matrix[i][j]
-        return matrix
+            for j in range(n):
+                if j + i >= n:
+                    result[j][i] = arr[n - 1 - i][n - 1 - j]
+        return result
+    elif mirroring == "both":
+        mid_r = arr.shape[0] // 2
+        arr[arr.shape[0] - mid_r:] = arr[:mid_r][::-1]
+        mid_c = arr.shape[1] // 2
+        arr[:, arr.shape[1] - mid_c:] = arr[:, :mid_c][:, ::-1]
+        return arr
 
 
 def get_neighbors(matrix, x, y):
@@ -294,17 +261,11 @@ def perlin(x, y, octaves_num, seed=0):
 
 
 def scale_matrix(matrix, target_height, target_width):
-    src_height = len(matrix)
-    src_width = len(matrix[0])
-    scaled_matrix = [[" " for _ in range(target_width)] for _ in range(target_height)]
-
-    for i in range(target_height):
-        for j in range(target_width):
-            src_i = int(i * src_height / target_height)
-            src_j = int(j * src_width / target_width)
-            scaled_matrix[i][j] = matrix[src_i][src_j]
-
-    return scaled_matrix
+    arr = np.asarray(matrix)
+    src_h, src_w = arr.shape
+    row_idx = (np.arange(target_height) * src_h // target_height).astype(int)
+    col_idx = (np.arange(target_width) * src_w // target_width).astype(int)
+    return arr[np.ix_(row_idx, col_idx)]
 
 
 def place_resource_pull(items_matrix, i, j):
@@ -373,27 +334,21 @@ def _find_valid_resource_positions(randomized_matrix, forbidden_zones):
 
 
 def _select_spaced_positions(available_tiles, num_positions, rows, cols):
-    placed = []
-    for i in range(num_positions):
-        if i == 0:
-            center_i, center_j = rows // 4, cols // 2
-            if (center_i, center_j) in available_tiles:
-                placed.append((center_i, center_j))
-                available_tiles.remove((center_i, center_j))
-            else:
-                tile = available_tiles.pop(0)
-                placed.append(tile)
-        else:
-            max_distance = float('-inf')
-            best_tile = None
-            for tile in available_tiles:
-                min_distance = min([abs(tile[0] - x) + abs(tile[1] - y) for x, y in placed], default=float('inf'))
-                if min_distance > max_distance:
-                    max_distance = min_distance
-                    best_tile = tile
-            placed.append(best_tile)
-            available_tiles.remove(best_tile)
-    return placed
+    tiles = np.array(available_tiles)
+    placed_idx = []
+
+    # First: pick tile closest to centroid of available tiles
+    centroid = tiles.mean(axis=0)
+    first = np.argmin(np.abs(tiles - centroid).sum(axis=1))
+    placed_idx.append(first)
+
+    for _ in range(1, num_positions):
+        placed = tiles[placed_idx]
+        dists = np.abs(tiles[:, None] - placed[None, :]).sum(axis=2).min(axis=1)
+        dists[placed_idx] = -1
+        placed_idx.append(np.argmax(dists))
+
+    return [tuple(tiles[i]) for i in placed_idx]
 
 
 def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix):
@@ -403,7 +358,7 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
     available_tiles = _find_valid_resource_positions(randomized_matrix, forbidden_zones)
 
     if len(available_tiles) < num_resource_pulls:
-        print("Not enough space to place the specified number of resource pulls")
+        logger.warning("Not enough space to place the specified number of resource pulls")
         return items_matrix
 
     placed_pulls = _select_spaced_positions(available_tiles, num_resource_pulls, rows, cols)
@@ -563,34 +518,32 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pul
             num_upscales = i
     num_upscales += 1
 
-    randomized_matrix = initial_matrix
+    randomized_matrix = np.array(initial_matrix)
     if preview_callback:
-        preview_callback("initial_matrix", np.array(initial_matrix), None, None, None)
+        preview_callback("initial_matrix", randomized_matrix.copy(), None, None, None)
 
     for i in range(num_upscales):
         subdivided_matrix = subdivide(randomized_matrix)
         randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
         if preview_callback:
-            preview_callback(f"upscale_{i + 1}/{num_upscales}", np.array(randomized_matrix), None, None, None)
+            preview_callback(f"upscale_{i + 1}/{num_upscales}", randomized_matrix.copy(), None, None, None)
 
-    randomized_matrix = np.array(randomized_matrix)
-    scaled_matrix = scale_matrix(randomized_matrix, height, width)
-    print("Basic matrix created")
+    height_map = scale_matrix(randomized_matrix, height, width)
+    logger.info("Basic matrix created")
 
     perlin_map = perlin(height, width, octaves_num=9, seed=random.randint(0, 99999))
-    height_map = np.array(scaled_matrix)
 
     if preview_callback:
         preview_callback("scaled_matrix", height_map.copy(), None, None, None)
 
-    print("Perlin matrix generated")
+    logger.info("Perlin matrix generated")
     perlin_change = 1/num_height_levels
     perlin_value = -0.5
 
     for level in range(2, num_height_levels+1):
         perlin_value += perlin_change
         height_map = generate_level(height_map, perlin_map, "height", level=level, min_perlin_value=perlin_value)
-        print(f"Level {level} generated")
+        logger.info(f"Level {level} generated")
         if preview_callback:
             preview_callback(f"height_level_{level}", height_map.copy(), None, None, None)
 
@@ -600,18 +553,18 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pul
     for level in list(range(-1, num_ocean_levels*-1, -1)):
         perlin_value += perlin_change
         height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
-        print(f"Level {level} generated")
+        logger.info(f"Level {level} generated")
         if preview_callback:
             preview_callback(f"ocean_level_{level}", height_map.copy(), None, None, None)
 
     items_matrix = np.zeros_like(height_map)
     height_map, items_matrix = add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix)
-    print("Resource pulls added")
+    logger.info("Resource pulls added")
     if preview_callback:
         preview_callback("resource_pulls", height_map.copy(), None, items_matrix.copy(), None)
 
     units_matrix = add_command_centers(randomized_matrix, num_command_centers, mirroring, height_map.shape)
-    print("Command centers added")
+    logger.info("Command centers added")
     if preview_callback:
         preview_callback("command_centers", height_map.copy(), None, items_matrix.copy(), units_matrix.copy())
 

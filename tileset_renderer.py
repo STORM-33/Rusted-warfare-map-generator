@@ -161,17 +161,24 @@ class MapRenderer:
     def _render_full(self, id_matrix, items_matrix, units_matrix):
         """Full 20px tile compositing for small maps."""
         h, w = id_matrix.shape
-        img = np.zeros((h * 20, w * 20, 4), dtype=np.uint8)
 
-        # Ground layer
-        for y in range(h):
-            for x in range(w):
-                local_id = int(id_matrix[y, x])
-                tile = self.extractor.get_ground_tile(local_id)
-                if tile is not None:
-                    img[y*20:(y+1)*20, x*20:(x+1)*20] = tile
+        # Build ground tile atlas for vectorized lookup
+        ground_tiles = self.extractor._ground_tiles
+        if ground_tiles:
+            max_id = max(ground_tiles.keys())
+            atlas = np.zeros((max_id + 1, 20, 20, 4), dtype=np.uint8)
+            for tid, tile in ground_tiles.items():
+                atlas[tid] = tile
 
-        # Items layer
+            ids = id_matrix.astype(np.intp).clip(0, max_id)
+            # ids shape: (h, w) -> tiles shape: (h, w, 20, 20, 4)
+            tiles = atlas[ids.ravel()].reshape(h, w, 20, 20, 4)
+            # Rearrange to (h*20, w*20, 4)
+            img = tiles.transpose(0, 2, 1, 3, 4).reshape(h * 20, w * 20, 4).copy()
+        else:
+            img = np.zeros((h * 20, w * 20, 4), dtype=np.uint8)
+
+        # Items layer (sparse — keep loop, skip zeros)
         if items_matrix is not None:
             for y in range(h):
                 for x in range(w):
@@ -182,7 +189,7 @@ class MapRenderer:
                         if tile is not None:
                             self._alpha_composite_tile(img, tile, y * 20, x * 20)
 
-        # Units layer
+        # Units layer (sparse — keep loop, skip zeros)
         if units_matrix is not None:
             for y in range(h):
                 for x in range(w):
