@@ -1,14 +1,14 @@
 import sys
 import os
+import builtins
+from collections import deque
 from PyQt5.QtWidgets import (QApplication, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
-                             QSpinBox, QDialog, QTextEdit, QFileDialog)
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer, QSize
-from PyQt5.QtGui import QColor
-from generator_main import generate_map
+                             QSpinBox, QFileDialog, QWidget, QStackedWidget)
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, QSize, Qt
+from PyQt5.QtGui import QColor, QPixmap
+from generator_main import generate_map, PreviewState
+from tileset_renderer import TilesetExtractor, MapRenderer
 
-
-from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt
 
 class FixedGridWidget(QWidget):
     def __init__(self, rows, cols, button_size, spacing):
@@ -43,8 +43,38 @@ class FixedGridWidget(QWidget):
         return self.sizeHint()
 
 
+class MapPreviewWidget(QWidget):
+    """Widget that displays the map preview image and a stage label."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.image_label = QLabel()
+        self.image_label.setFixedSize(512, 512)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("background-color: #1a1a2e;")
+        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+
+        self.stage_label = QLabel("Waiting...")
+        self.stage_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.stage_label)
+
+        self.setLayout(layout)
+
+    def update_preview(self, pixmap, stage_text):
+        self.image_label.setPixmap(pixmap)
+        self.stage_label.setText(stage_text)
+
+    def clear(self):
+        self.image_label.clear()
+        self.image_label.setStyleSheet("background-color: #1a1a2e;")
+        self.stage_label.setText("Waiting...")
+
+
 class MapGeneratorWorker(QThread):
-    progress_signal = pyqtSignal(str)
+    preview_signal = pyqtSignal(object)
     finished_signal = pyqtSignal()
 
     def __init__(self, generate_map_func, **kwargs):
@@ -53,34 +83,24 @@ class MapGeneratorWorker(QThread):
         self.kwargs = kwargs
 
     def run(self):
-        # Redirect print statements to progress_signal
-        def custom_print(*args, **kwargs):
-            self.progress_signal.emit(' '.join(map(str, args)))
+        original_print = builtins.print
+        builtins.print = lambda *a, **kw: None
 
-        import builtins
-        builtins.print = custom_print
+        def preview_cb(stage, height_map, id_matrix, items_matrix, units_matrix):
+            state = PreviewState(
+                stage=stage,
+                height_map=height_map,
+                id_matrix=id_matrix,
+                items_matrix=items_matrix,
+                units_matrix=units_matrix,
+            )
+            self.preview_signal.emit(state)
 
         try:
-            self.generate_map_func(**self.kwargs)
+            self.generate_map_func(preview_callback=preview_cb, **self.kwargs)
         finally:
-            # Restore original print function
-            builtins.print = print
+            builtins.print = original_print
             self.finished_signal.emit()
-
-
-class ProgressWindow(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Map Generation Progress")
-        self.text_edit = QTextEdit(self)
-        self.text_edit.setReadOnly(True)
-        layout = QVBoxLayout()
-        layout.addWidget(self.text_edit)
-        self.setLayout(layout)
-        self.setModal(True)
-
-    def append_text(self, text):
-        self.text_edit.append(text)
 
 
 class ColorChangingButton(QPushButton):
@@ -116,12 +136,18 @@ class MapGeneratorGUI(QWidget):
                        [1, 1, 0, 1, 1],
                        [1, 0, 1, 0, 1]]
         self.default_output_path = os.path.dirname(sys.executable)
+        self._extractor_cache = {}
+        self._renderer = None
+        self._preview_queue = deque()
+        self._preview_timer = QTimer()
+        self._preview_timer.setInterval(150)
+        self._preview_timer.timeout.connect(self._flush_next_preview)
+        self._generation_finished = False
         self.initUI()
 
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Создаем FixedGridWidget вместо QGridLayout
         self.grid_widget = FixedGridWidget(5, 5, self.button_size, self.grid_spacing)
         self.buttons = []
         default_pattern = "Forest"
@@ -136,14 +162,20 @@ class MapGeneratorGUI(QWidget):
                 row.append(button)
             self.buttons.append(row)
 
-        # Создаем контейнер для центрирования сетки
         grid_container = QWidget()
         grid_container_layout = QVBoxLayout()
         grid_container_layout.addWidget(self.grid_widget, alignment=Qt.AlignCenter)
         grid_container_layout.setContentsMargins(0, 0, 0, 0)
         grid_container.setLayout(grid_container_layout)
 
-        layout.addWidget(grid_container)
+        # Stacked widget: page 0 = grid, page 1 = preview
+        self.stacked_widget = QStackedWidget()
+        self.stacked_widget.addWidget(grid_container)
+
+        self.preview_widget = MapPreviewWidget()
+        self.stacked_widget.addWidget(self.preview_widget)
+
+        layout.addWidget(self.stacked_widget)
 
         self.output_path_label = QLabel(f"Output path: {self.default_output_path}")
         layout.addWidget(self.output_path_label)
@@ -164,11 +196,11 @@ class MapGeneratorGUI(QWidget):
         self.mirroring_combo.currentTextChanged.connect(self.update_matrix)
         layout.addLayout(self.create_input("Mirroring:", "mirroring", self.mirroring_combo))
 
-        num_res_pulls = self.create_spinbox(0, 50, 12)
-        layout.addLayout(self.create_input("Num of res_pulls (0-50):", "num_res_pulls", num_res_pulls))
+        num_resource_pulls = self.create_spinbox(0, 50, 12)
+        layout.addLayout(self.create_input("Num of resource pulls (0-50):", "num_resource_pulls", num_resource_pulls))
 
-        num_com_centers = self.create_spinbox(0, 10, 4, 2)
-        layout.addLayout(self.create_input("Num of players (even, 0-10):", "num_com_centers", num_com_centers))
+        num_command_centers = self.create_spinbox(0, 10, 4, 2)
+        layout.addLayout(self.create_input("Num of players (even, 0-10):", "num_command_centers", num_command_centers))
 
         num_height_levels = self.create_spinbox(1, 7, 7)
         layout.addLayout(self.create_input("Num of height levels (1-7):", "num_height_levels", num_height_levels))
@@ -190,7 +222,6 @@ class MapGeneratorGUI(QWidget):
         self.setWindowTitle('Map generator')
         self.show()
 
-        # Применяем начальное отражение
         self.update_matrix()
 
     def select_output_directory(self):
@@ -217,7 +248,7 @@ class MapGeneratorGUI(QWidget):
     def button_clicked(self):
         sender = self.sender()
         row, col = sender.row, sender.col
-        self.matrix[row][col] = 1 - self.matrix[row][col]  # Toggle between 0 and 1
+        self.matrix[row][col] = 1 - self.matrix[row][col]
         self.update_button_colors()
         self.update_mirrored_buttons(row, col)
 
@@ -263,49 +294,81 @@ class MapGeneratorGUI(QWidget):
     def get_matrix(self):
         return self.matrix
 
+    def _get_extractor(self, pattern_index):
+        if pattern_index not in self._extractor_cache:
+            tmx_path = f"generator_blueprint{pattern_index}.tmx"
+            self._extractor_cache[pattern_index] = TilesetExtractor(tmx_path)
+        return self._extractor_cache[pattern_index]
+
     def generate_map(self):
         initial_matrix = self.get_matrix()
         height = self.findChild(QSpinBox, "height").value()
         width = self.findChild(QSpinBox, "width").value()
         mirroring = self.mirroring_combo.currentText()
-        num_res_pulls = self.findChild(QSpinBox, "num_res_pulls").value()
-        num_com_centers = self.findChild(QSpinBox, "num_com_centers").value()
+        num_resource_pulls = self.findChild(QSpinBox, "num_resource_pulls").value()
+        num_command_centers = self.findChild(QSpinBox, "num_command_centers").value()
         num_height_levels = self.findChild(QSpinBox, "num_height_levels").value()
         num_ocean_levels = self.findChild(QSpinBox, "num_ocean_levels").value()
         pattern = list(self.pattern_colors.keys()).index(self.pattern_combo.currentText()) + 1
 
         output_path = self.default_output_path
 
-        # Create and show progress window
-        self.progress_window = ProgressWindow(self)
-        self.progress_window.show()
+        # Switch to preview page
+        self.stacked_widget.setCurrentIndex(1)
+        self.preview_widget.clear()
+        self._preview_queue.clear()
+        self._generation_finished = False
 
-        # Create and start worker thread
+        # Initialize renderer for current pattern
+        extractor = self._get_extractor(pattern)
+        self._renderer = MapRenderer(extractor)
+
         self.worker = MapGeneratorWorker(
             generate_map,
             initial_matrix=initial_matrix,
             height=height, width=width,
             mirroring=mirroring,
-            num_res_pulls=num_res_pulls,
-            num_com_centers=num_com_centers,
+            num_resource_pulls=num_resource_pulls,
+            num_command_centers=num_command_centers,
             num_height_levels=num_height_levels,
             num_ocean_levels=num_ocean_levels,
             pattern=pattern,
             output_path=output_path
         )
-        self.worker.progress_signal.connect(self.progress_window.append_text)
-        self.worker.finished_signal.connect(self.on_generation_finished)
+        self.worker.preview_signal.connect(self._enqueue_preview)
+        self.worker.finished_signal.connect(self._on_worker_finished)
         self.worker.start()
+        self._preview_timer.start()
 
-    def on_generation_finished(self):
-        self.progress_window.append_text("Map generation completed. This window will close in 3 seconds.")
-        QTimer.singleShot(3000, self.close_progress_window)
+    def _enqueue_preview(self, state):
+        self._preview_queue.append(state)
 
-    def close_progress_window(self):
-        if self.progress_window:
-            self.progress_window.close()
-            self.progress_window = None
+    def _flush_next_preview(self):
+        if not self._preview_queue:
+            if self._generation_finished:
+                self._preview_timer.stop()
+                QTimer.singleShot(3000, self._switch_to_grid)
+            return
+
+        state = self._preview_queue.popleft()
+        if self._renderer is None:
+            return
+
+        if state.id_matrix is None:
+            qimg = self._renderer.render_height_map(state.height_map)
+        else:
+            qimg = self._renderer.render_terrain(state.id_matrix, state.items_matrix, state.units_matrix)
+
+        pixmap = QPixmap.fromImage(qimg)
+        stage_text = state.stage.replace("_", " ").title()
+        self.preview_widget.update_preview(pixmap, stage_text)
+
+    def _on_worker_finished(self):
+        self._generation_finished = True
         self.worker = None
+
+    def _switch_to_grid(self):
+        self.stacked_widget.setCurrentIndex(0)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

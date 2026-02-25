@@ -1,0 +1,6 @@
+numpy
+PyQt5
+perlin-noise
+scipy
+matplotlib
+Pillow

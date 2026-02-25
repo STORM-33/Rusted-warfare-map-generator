@@ -1,19 +1,39 @@
 import gzip
 import base64
-from procedural_map_generator_functions import *
 import numpy as np
 import os
+from dataclasses import dataclass
+from typing import Optional
+
+from procedural_map_generator_functions import (
+    create_map_matrix,
+    smooth_terrain_tiles,
+    add_decoration_tiles,
+    DECORATION_FREQUENCY,
+)
+
+TILE_ID_OFFSET = 201
+
+
+@dataclass
+class PreviewState:
+    stage: str
+    height_map: np.ndarray
+    id_matrix: Optional[np.ndarray] = None
+    items_matrix: Optional[np.ndarray] = None
+    units_matrix: Optional[np.ndarray] = None
 
 
 def generate_map(initial_matrix,
                  height, width,
                  mirroring,
-                 num_res_pulls,
-                 num_com_centers,
+                 num_resource_pulls,
+                 num_command_centers,
                  num_height_levels,
                  num_ocean_levels,
                  pattern,
-                 output_path):
+                 output_path,
+                 preview_callback=None):
 
     tile_sets = {"water_sand":       (31, 34, 6, 7, 8, 33, 35, 60, 61, 62, 87, 88, 114, 115),
                  "sand_grass":       (34, 37, 9, 10, 11, 36, 38, 63, 64, 65, 90, 91, 117, 118),
@@ -33,32 +53,22 @@ def generate_map(initial_matrix,
                         6: (104, 131),
                         7: (107, 134)}
 
-    ID = range(0, 10000)
     map_matrix, items_matrix, units_matrix = create_map_matrix(initial_matrix=initial_matrix,
                                                                height=height, width=width,
                                                                mirroring=mirroring,
-                                                               num_res_pulls=num_res_pulls,
-                                                               num_com_centers=num_com_centers,
+                                                               num_resource_pulls=num_resource_pulls,
+                                                               num_command_centers=num_command_centers,
                                                                num_height_levels=num_height_levels,
-                                                               num_ocean_levels=num_ocean_levels)
+                                                               num_ocean_levels=num_ocean_levels,
+                                                               preview_callback=preview_callback)
     height, width = np.shape(map_matrix)
 
-    tile_data = []
-    tile_data_items = []
-    tile_data_units = []
-
-    for i in items_matrix:
-        for j in i:
-            tile_data_items.append(ID[int(j)].to_bytes(4, 'little'))
-
-    gzip_data_items = gzip.compress(b''.join(tile_data_items))
+    tile_data_items = b''.join(int(j).to_bytes(4, 'little') for i in items_matrix for j in i)
+    gzip_data_items = gzip.compress(tile_data_items)
     base64_data_items = base64.b64encode(gzip_data_items)
 
-    for i in units_matrix:
-        for j in i:
-            tile_data_units.append(ID[int(j)].to_bytes(4, 'little'))
-
-    gzip_data_units = gzip.compress(b''.join(tile_data_units))
+    tile_data_units = b''.join(int(j).to_bytes(4, 'little') for i in units_matrix for j in i)
+    gzip_data_units = gzip.compress(tile_data_units)
     base64_data_units = base64.b64encode(gzip_data_units)
 
     terrain_levels = [
@@ -76,14 +86,17 @@ def generate_map(initial_matrix,
     id_matrix = np.full((height, width), 83)
 
     for level, tile_set in reversed(terrain_levels):
-        id_matrix = fcking_smoothing_function1(map_matrix, id_matrix, level, tile_set)
-    id_matrix = add_decoration_tiles(id_matrix, map_matrix, decoration_tiles, 0.05)
+        id_matrix = smooth_terrain_tiles(map_matrix, id_matrix, level, tile_set)
+        if preview_callback:
+            preview_callback(f"terrain_smooth_{level}", map_matrix.copy(), id_matrix.copy(), items_matrix.copy(), units_matrix.copy())
 
-    for i in id_matrix:
-        for j in i:
-            tile_data.append(ID[201+int(j)].to_bytes(4, 'little'))
+    id_matrix = add_decoration_tiles(id_matrix, map_matrix, decoration_tiles, DECORATION_FREQUENCY)
 
-    gzip_data = gzip.compress(b''.join(tile_data))
+    if preview_callback:
+        preview_callback("terrain_complete", map_matrix.copy(), id_matrix.copy(), items_matrix.copy(), units_matrix.copy())
+
+    tile_data = b''.join((TILE_ID_OFFSET + int(j)).to_bytes(4, 'little') for i in id_matrix for j in i)
+    gzip_data = gzip.compress(tile_data)
     base64_data_ground = base64.b64encode(gzip_data)
 
     with open(f"generator_blueprint{pattern}.tmx", "r", encoding='utf-8') as map_file:
@@ -115,8 +128,8 @@ def main():
     generate_map(initial_matrix=initial_matrix,
                  height=160, width=160,
                  mirroring="diagonal1",
-                 num_res_pulls=24,
-                 num_com_centers=10,
+                 num_resource_pulls=24,
+                 num_command_centers=10,
                  num_height_levels=7,
                  num_ocean_levels=3,
                  pattern=5,
@@ -125,6 +138,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# gzip_data = gzip.compress(b''.join(tile_data))
-# base64_data_ground = base64.b64encode(gzip_data)
