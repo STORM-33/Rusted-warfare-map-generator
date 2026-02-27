@@ -3,6 +3,12 @@ import os
 import logging
 from collections import deque
 
+
+def resource_path(relative_path):
+    """Resolve path to bundled data file (PyInstaller-compatible)."""
+    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
+    return os.path.join(base, relative_path)
+
 import numpy as np
 from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
@@ -136,7 +142,7 @@ class ClickablePreviewWidget(QWidget):
     mouse events arrive directly at this widget — no propagation issues.
     """
     map_clicked = pyqtSignal(int, int)      # row, col in map coordinates
-    map_drawn = pyqtSignal(list)            # list of (row, col)
+    map_drawn = pyqtSignal(list, int)       # list of (row, col), draw_value (1=wall, 2=gap)
 
     DISPLAY_SIZE = 512
 
@@ -152,6 +158,8 @@ class ClickablePreviewWidget(QWidget):
         self._drawing = False
         self._draw_points = []
         self._brush_size = 1
+        self._draw_value = 1       # 1 = wall, 2 = gap
+        self._active_draw_value = 1  # value used during current stroke
         self._wall_overlay_timer = QTimer()
         self._wall_overlay_timer.setInterval(50)
         self._wall_overlay_timer.setSingleShot(True)
@@ -187,6 +195,9 @@ class ClickablePreviewWidget(QWidget):
         self._draw_mode = enabled
         self._click_mode = False
 
+    def set_draw_value(self, value):
+        self._draw_value = value
+
     def set_brush_size(self, size):
         self._brush_size = size
 
@@ -219,10 +230,28 @@ class ClickablePreviewWidget(QWidget):
         px_w = self._pixmap.width()
         px_h = self._pixmap.height()
 
-        # Build RGBA image at map resolution, then scale — much faster than per-cell QPainter
+        # Detect border: cells that are filled (1 or 2) and have at least one empty (0) neighbour.
+        filled = wall_matrix > 0  # 1 (wall) or 2 (gap)
+        # Pad with False (out-of-bounds = empty) and check 4-connected neighbours
+        padded = np.pad(filled, 1, constant_values=False)
+        has_empty_neighbour = (
+            ~padded[:-2, 1:-1] |  # top
+            ~padded[2:, 1:-1]  |  # bottom
+            ~padded[1:-1, :-2] |  # left
+            ~padded[1:-1, 2:]     # right
+        )
+        border = filled & has_empty_neighbour
+
+        # Build RGBA overlay showing only the border
         overlay_img = np.zeros((h, w, 4), dtype=np.uint8)
-        mask = wall_matrix == 1
-        overlay_img[mask] = [200, 50, 50, 140]
+        # Red = wall border, Blue = gap border
+        wall_border = border & (wall_matrix == 1)
+        gap_border = border & (wall_matrix == 2)
+        overlay_img[wall_border] = [200, 50, 50, 200]     # Red = wall
+        overlay_img[gap_border] = [50, 150, 200, 200]      # Blue = gap
+        # Show interior as very faint so user can see their painted area
+        interior = filled & ~border
+        overlay_img[interior] = [150, 150, 150, 40]
 
         overlay_img = np.ascontiguousarray(overlay_img)
         qimg = QImage(overlay_img.data, w, h, w * 4, QImage.Format_RGBA8888).copy()
@@ -295,19 +324,21 @@ class ClickablePreviewWidget(QWidget):
         return row, col
 
     def mousePressEvent(self, event):
-        if event.button() != Qt.LeftButton:
+        if event.button() not in (Qt.LeftButton, Qt.RightButton):
             return super().mousePressEvent(event)
 
         row, col = self._pixel_to_map(event.pos())
         if row is None:
             return
 
-        if self._click_mode:
+        if self._click_mode and event.button() == Qt.LeftButton:
             self.map_clicked.emit(row, col)
         elif self._draw_mode:
             self._drawing = True
+            # Right-click always draws gaps; left-click uses panel setting
+            self._active_draw_value = 2 if event.button() == Qt.RightButton else self._draw_value
             self._draw_points = self._get_brush_points(row, col)
-            self.map_drawn.emit(self._draw_points[:])
+            self.map_drawn.emit(self._draw_points[:], self._active_draw_value)
 
     def mouseMoveEvent(self, event):
         if not self._drawing or not self._draw_mode:
@@ -319,10 +350,10 @@ class ClickablePreviewWidget(QWidget):
 
         new_points = self._get_brush_points(row, col)
         self._draw_points.extend(new_points)
-        self.map_drawn.emit(new_points)
+        self.map_drawn.emit(new_points, self._active_draw_value)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() in (Qt.LeftButton, Qt.RightButton):
             self._drawing = False
 
     def _get_brush_points(self, row, col):
@@ -481,13 +512,28 @@ class CoastlineStepPanel(QWidget):
 class HillDrawingStepPanel(QWidget):
     clear_walls_clicked = pyqtSignal()
     brush_size_changed = pyqtSignal(int)
+    draw_value_changed = pyqtSignal(int)  # 1 = wall, 2 = gap
 
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout()
 
         layout.addWidget(QLabel("Draw wall lines on the preview. They will be auto-mirrored."))
-        layout.addWidget(QLabel("Walls block unit movement (gameplay only — tile rendering deferred)."))
+        layout.addWidget(QLabel("Use Gap brush (or right-click) to mark passages through walls."))
+
+        # Draw mode toggle
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Brush:"))
+        self.wall_btn = QPushButton("Wall")
+        self.gap_btn = QPushButton("Gap")
+        self.wall_btn.setCheckable(True)
+        self.gap_btn.setCheckable(True)
+        self.wall_btn.setChecked(True)
+        self.wall_btn.clicked.connect(lambda: self._set_draw_value(1))
+        self.gap_btn.clicked.connect(lambda: self._set_draw_value(2))
+        mode_layout.addWidget(self.wall_btn)
+        mode_layout.addWidget(self.gap_btn)
+        layout.addLayout(mode_layout)
 
         # Brush size
         brush_layout = QHBoxLayout()
@@ -510,6 +556,11 @@ class HillDrawingStepPanel(QWidget):
 
         layout.addStretch()
         self.setLayout(layout)
+
+    def _set_draw_value(self, value):
+        self.wall_btn.setChecked(value == 1)
+        self.gap_btn.setChecked(value == 2)
+        self.draw_value_changed.emit(value)
 
 
 class HeightOceanStepPanel(QWidget):
@@ -741,6 +792,7 @@ class WizardGUI(QWidget):
         self.hill_panel = HillDrawingStepPanel()
         self.hill_panel.clear_walls_clicked.connect(self._clear_walls)
         self.hill_panel.brush_size_changed.connect(self.preview.set_brush_size)
+        self.hill_panel.draw_value_changed.connect(self.preview.set_draw_value)
         self.panel_stack.addWidget(self.hill_panel)
 
         self.height_panel = HeightOceanStepPanel()
@@ -856,7 +908,7 @@ class WizardGUI(QWidget):
     def _get_renderer(self):
         pattern = self.coastline_panel.get_pattern_index()
         if pattern not in self._extractor_cache:
-            tmx_path = f"generator_blueprint{pattern}.tmx"
+            tmx_path = resource_path(f"generator_blueprint{pattern}.tmx")
             self._extractor_cache[pattern] = TilesetExtractor(tmx_path)
         extractor = self._extractor_cache[pattern]
         self._renderer = MapRenderer(extractor)
@@ -990,8 +1042,8 @@ class WizardGUI(QWidget):
 
     # --- Step 2: Hill Drawing ---
 
-    def _on_map_drawn(self, points):
-        """Handle wall drawing on preview."""
+    def _on_map_drawn(self, points, draw_value=1):
+        """Handle wall/gap drawing on preview. draw_value: 1=wall, 2=gap."""
         if self.state.current_step != WizardStep.HILLS:
             return
         if self.state.wall_matrix is None:
@@ -1004,7 +1056,9 @@ class WizardGUI(QWidget):
             mirrored = _get_mirrored_positions(r, c, h, w, mirroring)
             for mr, mc in mirrored:
                 if 0 <= mr < h and 0 <= mc < w:
-                    self.state.wall_matrix[mr, mc] = 1
+                    if draw_value == 2 and self.state.wall_matrix[mr, mc] == 0:
+                        continue  # gap brush only affects filled cells
+                    self.state.wall_matrix[mr, mc] = draw_value
 
         self.preview.set_wall_overlay(self.state.wall_matrix)
 

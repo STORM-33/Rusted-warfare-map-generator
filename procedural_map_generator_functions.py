@@ -32,7 +32,7 @@ def subdivide(matrix):
     return np.repeat(np.repeat(arr, 2, axis=0), 2, axis=1)
 
 
-def randomize(matrix):
+def randomize(matrix, smoothness=0.0):
     arr = np.asarray(matrix)
     rows, cols = arr.shape
     padded = np.pad(arr, 1, mode='edge')
@@ -43,8 +43,9 @@ def randomize(matrix):
             if di == 0 and dj == 0:
                 continue
             neighbor_count += (padded[1+di:rows+1+di, 1+dj:cols+1+dj] != arr).astype(int)
-    # Probabilistic flip where neighbors >= 3
-    prob = 0.2 + 0.1 * (neighbor_count - 3)
+    # Probabilistic flip where neighbors >= 3, scaled by smoothness
+    base_prob = 0.2 + 0.1 * (neighbor_count - 3)
+    prob = base_prob * (1.0 - smoothness * 0.85)
     prob = np.clip(prob, 0, 1)
     flip_mask = (neighbor_count >= 3) & (np.random.random((rows, cols)) < prob)
     result = arr.copy()
@@ -650,7 +651,7 @@ def add_decoration_tiles(id_matrix, map_matrix, dec_tiles, freq):
     return id_matrix
 
 
-def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pulls, num_command_centers, num_height_levels, num_ocean_levels, preview_callback=None):
+def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pulls, num_command_centers, num_height_levels, num_ocean_levels, shoreline_smoothness=0.0, preview_callback=None):
     if not isinstance(initial_matrix, list):
         raise ValueError("Initial matrix was defined incorrectly")
     if mirroring not in ["none", "horizontal", "vertical", "diagonal1", "diagonal2", "both"]:
@@ -674,7 +675,7 @@ def create_map_matrix(initial_matrix, height, width, mirroring, num_resource_pul
 
     for i in range(num_upscales):
         subdivided_matrix = subdivide(randomized_matrix)
-        randomized_matrix = mirror(randomize(subdivided_matrix), mirroring)
+        randomized_matrix = mirror(randomize(subdivided_matrix, smoothness=shoreline_smoothness), mirroring)
         if preview_callback:
             preview_callback(f"upscale_{i + 1}/{num_upscales}", randomized_matrix.copy(), None, None, None)
 

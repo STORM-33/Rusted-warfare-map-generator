@@ -2,7 +2,14 @@ import gzip
 import base64
 import numpy as np
 import os
+import sys
 import xml.etree.ElementTree as ET
+
+
+def resource_path(relative_path):
+    """Resolve path to bundled data file (PyInstaller-compatible)."""
+    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
+    return os.path.join(base, relative_path)
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,6 +41,7 @@ def generate_map(initial_matrix,
                  num_ocean_levels,
                  pattern,
                  output_path,
+                 shoreline_smoothness=0.0,
                  preview_callback=None):
 
     tile_sets = {"water_sand":       (31, 34, 6, 7, 8, 33, 35, 60, 61, 62, 87, 88, 114, 115),
@@ -61,6 +69,7 @@ def generate_map(initial_matrix,
                                                                num_command_centers=num_command_centers,
                                                                num_height_levels=num_height_levels,
                                                                num_ocean_levels=num_ocean_levels,
+                                                               shoreline_smoothness=shoreline_smoothness,
                                                                preview_callback=preview_callback)
     height, width = np.shape(map_matrix)
 
@@ -100,7 +109,7 @@ def generate_map(initial_matrix,
     gzip_data = gzip.compress(tile_data)
     base64_data_ground = base64.b64encode(gzip_data)
 
-    template_path = f"generator_blueprint{pattern}.tmx"
+    template_path = resource_path(f"generator_blueprint{pattern}.tmx")
     tree = ET.parse(template_path)
     root = tree.getroot()
 

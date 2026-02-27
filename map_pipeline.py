@@ -3,9 +3,17 @@ import base64
 import logging
 import random
 import os
+import sys
 
 import numpy as np
 import xml.etree.ElementTree as ET
+from scipy.ndimage import distance_transform_cdt
+
+
+def resource_path(relative_path):
+    """Resolve path to bundled data file (PyInstaller-compatible)."""
+    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
+    return os.path.join(base, relative_path)
 
 from wizard_state import WizardState, WizardStep
 from procedural_map_generator_functions import (
@@ -66,9 +74,10 @@ _WALL_ISOLATED = [
 def smooth_wall_tiles(wall_matrix):
     """Smooth wall_matrix cells into large-rock tile GIDs for a separate Walls layer.
 
-    For each wall cell, determines the correct rock tile based on cardinal neighbors,
-    then checks diagonal neighbors for inner corners. Removes isolated wall pixels
-    (thin lines with passable on opposite sides).
+    For each wall cell (value 1), determines the correct rock tile based on cardinal
+    neighbors, then checks diagonal neighbors for inner corners.  Gap cells (value 2)
+    are treated as wall-like for neighbour detection but do NOT generate tiles, so they
+    create passable openings in the wall border.
 
     Returns a wall_id_matrix where non-zero cells contain the full GID (firstgid + local_id)
     for the large-rock tileset. Zero means no wall tile at that position.
@@ -82,40 +91,48 @@ def smooth_wall_tiles(wall_matrix):
     ROCK_FIRSTGID = TILE_ID_OFFSET + ROCK_ID_OFFSET
     result = np.zeros((h, w), dtype=int)
 
+    # Helper: a cell is "solid" (wall-like) if it is wall (1) or gap (2).
+    # Only empty (0) / out-of-bounds counts as passable for tile selection.
+    def _passable(r, c, default):
+        """Return 1 if cell at (r,c) is passable (empty), 0 if solid. *default* used for OOB."""
+        if r < 0 or r >= h or c < 0 or c >= w:
+            return default
+        return int(cleaned[r, c] == 0)
+
     # First pass: remove isolated wall cells (thin lines)
     cleaned = wall_matrix.copy()
     for row in range(h):
         for col in range(w):
             if cleaned[row, col] != 1:
                 continue
-            top = int(cleaned[row - 1, col] != 1) if row > 0 else 1
-            right = int(cleaned[row, col + 1] != 1) if col < w - 1 else 1
-            bottom = int(cleaned[row + 1, col] != 1) if row < h - 1 else 1
-            left = int(cleaned[row, col - 1] != 1) if col > 0 else 1
+            top = _passable(row - 1, col, 1)
+            right = _passable(row, col + 1, 1)
+            bottom = _passable(row + 1, col, 1)
+            left = _passable(row, col - 1, 1)
             pattern = (top, right, bottom, left)
             if pattern in _WALL_ISOLATED:
                 cleaned[row, col] = 0
 
-    # Second pass: assign tile IDs
+    # Second pass: assign tile IDs (only for wall cells, not gap cells)
     for row in range(h):
         for col in range(w):
             if cleaned[row, col] != 1:
                 continue
 
-            top = int(cleaned[row - 1, col] != 1) if row > 0 else 0
-            right = int(cleaned[row, col + 1] != 1) if col < w - 1 else 0
-            bottom = int(cleaned[row + 1, col] != 1) if row < h - 1 else 0
-            left = int(cleaned[row, col - 1] != 1) if col > 0 else 0
+            top = _passable(row - 1, col, 0)
+            right = _passable(row, col + 1, 0)
+            bottom = _passable(row + 1, col, 0)
+            left = _passable(row, col - 1, 0)
             pattern = (top, right, bottom, left)
 
             if pattern in _WALL_CARDINAL_MAP:
                 idx = _WALL_CARDINAL_MAP[pattern]
                 if idx == 0:
-                    # All cardinal neighbors are walls — check diagonals for inner corners
-                    tl = int(cleaned[row - 1, col - 1] != 1) if row > 0 and col > 0 else 0
-                    tr = int(cleaned[row - 1, col + 1] != 1) if row > 0 and col < w - 1 else 0
-                    bl = int(cleaned[row + 1, col - 1] != 1) if row < h - 1 and col > 0 else 0
-                    br = int(cleaned[row + 1, col + 1] != 1) if row < h - 1 and col < w - 1 else 0
+                    # All cardinal neighbors are solid — check diagonals for inner corners
+                    tl = _passable(row - 1, col - 1, 0)
+                    tr = _passable(row - 1, col + 1, 0)
+                    bl = _passable(row + 1, col - 1, 0)
+                    br = _passable(row + 1, col + 1, 0)
 
                     # Pick inner corner tile if exactly one diagonal is passable
                     if tl and not tr and not bl and not br:
@@ -127,11 +144,12 @@ def smooth_wall_tiles(wall_matrix):
                     elif br and not tl and not tr and not bl:
                         local_id = tile_set[13]  # inner bottom-right
                     else:
-                        local_id = tile_set[1]  # center/flat
+                        # Fully interior cell — skip so decorations can go here.
+                        continue
                 else:
                     local_id = tile_set[idx + 1]  # +1 because tile_set[0] is flat_below, [1] is center
             else:
-                # Fallback: use center tile
+                # Fallback: use center tile (has at least one odd-pattern neighbor)
                 local_id = tile_set[1]
 
             if local_id >= 0:
@@ -185,6 +203,41 @@ def run_coastline(state: WizardState, preview_cb=None):
 # Step 3: Height/Ocean
 # ---------------------------------------------------------------------------
 
+# How far (in tiles) the wall influence extends
+WALL_INFLUENCE_RADIUS = 12
+
+
+def _bias_terrain_near_walls(height_map, wall_matrix, num_height_levels):
+    """Boost land terrain levels near walls so terrain visually matches hills.
+
+    Cells adjacent to walls get pushed toward stone/soil, fading to grass further
+    away.  Water cells (<=0) are never modified.
+    """
+    wall_mask = wall_matrix == 1
+    # Distance from each cell to the nearest wall cell (chessboard metric)
+    dist = distance_transform_cdt(~wall_mask, metric='chessboard').astype(float)
+
+    # Normalize: 1.0 at a wall, 0.0 at WALL_INFLUENCE_RADIUS or beyond
+    influence = np.clip(1.0 - dist / WALL_INFLUENCE_RADIUS, 0.0, 1.0)
+
+    # Only affect land cells (height >= 1)
+    land_mask = height_map >= 1
+
+    # Target level near walls — cap at the max height level the user configured
+    # (e.g. level 5 = stone for default 7 levels)
+    max_target = min(num_height_levels, 5)
+
+    # Compute boosted level: blend current level toward max_target based on influence
+    current = height_map[land_mask].astype(float)
+    boosted = current + influence[land_mask] * (max_target - current)
+    # Round to integer levels, but never go below the current level
+    boosted = np.clip(np.round(boosted).astype(int), height_map[land_mask], max_target)
+
+    result = height_map.copy()
+    result[land_mask] = boosted
+    return result
+
+
 def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
     """Perlin + height/ocean levels. Writes perlin_seed, perlin_map, height_map."""
     height, width = state.height, state.width
@@ -219,6 +272,12 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
         height_map = generate_level(height_map, perlin_map, "ocean", level=level, min_perlin_value=perlin_value)
         if preview_cb:
             preview_cb(f"ocean_level_{level}", height_map.copy())
+
+    # Bias terrain near walls: push land cells toward higher levels close to walls
+    if state.wall_matrix is not None and np.any(state.wall_matrix == 1):
+        height_map = _bias_terrain_near_walls(height_map, state.wall_matrix, num_height_levels)
+        if preview_cb:
+            preview_cb("wall_bias", height_map.copy())
 
     state.height_map = height_map
     state.completed_step = max(state.completed_step, int(WizardStep.HEIGHT_OCEAN))
@@ -521,7 +580,7 @@ def write_tmx(state: WizardState):
     gzip_data = gzip.compress(tile_data)
     base64_data_ground = base64.b64encode(gzip_data)
 
-    template_path = f"generator_blueprint{state.pattern}.tmx"
+    template_path = resource_path(f"generator_blueprint{state.pattern}.tmx")
     tree = ET.parse(template_path)
     root = tree.getroot()
 

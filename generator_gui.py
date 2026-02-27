@@ -206,6 +206,9 @@ class MapGeneratorGUI(QWidget):
         num_ocean_levels = self.create_spinbox(1, 3, 3)
         layout.addLayout(self.create_input("Num of ocean levels (1-3):", "num_ocean_levels", num_ocean_levels))
 
+        shoreline_smoothness = self.create_spinbox(0, 100, 0)
+        layout.addLayout(self.create_input("Shoreline smoothness (0-100%):", "shoreline_smoothness", shoreline_smoothness))
+
         self.pattern_combo = QComboBox()
         self.pattern_combo.addItems(list(self.pattern_colors.keys()))
         self.pattern_combo.setCurrentText(default_pattern)
@@ -307,6 +310,7 @@ class MapGeneratorGUI(QWidget):
         num_command_centers = self.findChild(QSpinBox, "num_command_centers").value()
         num_height_levels = self.findChild(QSpinBox, "num_height_levels").value()
         num_ocean_levels = self.findChild(QSpinBox, "num_ocean_levels").value()
+        shoreline_smoothness = self.findChild(QSpinBox, "shoreline_smoothness").value() / 100.0
         pattern = list(self.pattern_colors.keys()).index(self.pattern_combo.currentText()) + 1
 
         output_path = self.default_output_path
@@ -333,6 +337,7 @@ class MapGeneratorGUI(QWidget):
             num_command_centers=num_command_centers,
             num_height_levels=num_height_levels,
             num_ocean_levels=num_ocean_levels,
+            shoreline_smoothness=shoreline_smoothness,
             pattern=pattern,
             output_path=output_path
         )
