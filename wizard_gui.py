@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QRadioButton, QGroupBox, QSlider,
 )
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer, QSize, Qt, QPoint
-from PyQt5.QtGui import QColor, QPixmap, QPainter, QImage, QPen
+from PyQt5.QtGui import QColor, QPixmap, QPainter, QImage, QPen, QFont
 
 from wizard_state import WizardState, WizardStep
 from map_pipeline import (
@@ -914,6 +914,18 @@ class WizardGUI(QWidget):
         self._renderer = MapRenderer(extractor)
         return self._renderer
 
+    def _get_cc_team_colors(self):
+        """Extract team colors from the CC tileset tiles (average of non-transparent pixels)."""
+        renderer = self._get_renderer()
+        tiles = renderer.extractor._units_tiles
+        colors = {}
+        for tid, tile in tiles.items():
+            mask = tile[:, :, 3] > 50
+            if mask.any():
+                avg = tile[mask].mean(axis=0).astype(int)
+                colors[tid] = (int(avg[0]), int(avg[1]), int(avg[2]))
+        return colors
+
     def _render_height_map(self, height_map):
         renderer = self._get_renderer()
         qimg = renderer.render_height_map(height_map)
@@ -968,12 +980,35 @@ class WizardGUI(QWidget):
             mask = self.state.wall_matrix == 1
             overlay_img[mask] = [200, 50, 50, 140]
 
-        # CC markers (3x3 blue blocks)
-        if self.state.cc_positions:
+        # CC markers (5x5 colored blocks with dark border, team colors from tileset)
+        # GIDs 101-105 = Team A (local IDs 0-4), GIDs 106-110 = Team B (local IDs 5-9)
+        cc_label_info = []  # [(center_r, center_c, label_text, team_color)]
+        if self.state.cc_positions and self.state.units_matrix is not None:
+            team_colors = self._get_cc_team_colors()
             for r, c in self.state.cc_positions:
-                r_min, r_max = max(0, r - 1), min(h, r + 2)
-                c_min, c_max = max(0, c - 1), min(w, c + 2)
-                overlay_img[r_min:r_max, c_min:c_max] = [50, 100, 255, 220]
+                gid = int(self.state.units_matrix[r, c])
+                if gid <= 0:
+                    continue
+                local_id = gid - 101
+                color = team_colors.get(local_id, (50, 100, 255))
+                # In-game player numbering interleaves teams:
+                # local_id 0=P1, 5=P2, 1=P3, 6=P4, 2=P5, 7=P6, ...
+                pair = local_id % 5
+                team = 0 if local_id < 5 else 1
+                player_num = pair * 2 + team + 1
+                label = str(player_num)
+
+                # Dark border (7x7)
+                r_min, r_max = max(0, r - 3), min(h, r + 4)
+                c_min, c_max = max(0, c - 3), min(w, c + 4)
+                overlay_img[r_min:r_max, c_min:c_max] = [0, 0, 0, 200]
+
+                # Colored fill (5x5)
+                r_min, r_max = max(0, r - 2), min(h, r + 3)
+                c_min, c_max = max(0, c - 2), min(w, c + 3)
+                overlay_img[r_min:r_max, c_min:c_max] = [color[0], color[1], color[2], 240]
+
+                cc_label_info.append((r, c, label, color))
 
         # Resource markers (3x3 yellow blocks)
         if self.state.resource_positions:
@@ -986,7 +1021,38 @@ class WizardGUI(QWidget):
         qimg = QImage(overlay_img.data, w, h, w * 4, QImage.Format_RGBA8888).copy()
         qimg = qimg.scaled(px_w, px_h, Qt.IgnoreAspectRatio, Qt.FastTransformation)
 
-        self.preview._overlay_pixmap = QPixmap.fromImage(qimg)
+        overlay_pixmap = QPixmap.fromImage(qimg)
+
+        # Draw player numbers on the scaled overlay
+        if cc_label_info:
+            scale_x = px_w / w
+            scale_y = px_h / h
+            painter = QPainter(overlay_pixmap)
+            font_size = max(8, int(min(scale_x, scale_y) * 3))
+            font = QFont("Arial", font_size)
+            font.setBold(True)
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            for r, c, label, color in cc_label_info:
+                sx = int((c + 0.5) * scale_x)
+                sy = int((r + 0.5) * scale_y)
+                text = label
+                tw = fm.horizontalAdvance(text)
+                th = fm.ascent()
+                tx = sx - tw // 2
+                ty = sy + th // 2
+                # Text outline for readability
+                painter.setPen(QPen(QColor(0, 0, 0, 220), 2))
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if dx or dy:
+                            painter.drawText(QPoint(tx + dx, ty + dy), text)
+                # White text
+                painter.setPen(QColor(255, 255, 255, 255))
+                painter.drawText(QPoint(tx, ty), text)
+            painter.end()
+
+        self.preview._overlay_pixmap = overlay_pixmap
         self.preview._compose_display()
 
     # --- Worker management ---

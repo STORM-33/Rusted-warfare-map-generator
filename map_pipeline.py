@@ -301,7 +301,8 @@ def run_place_cc_random(state: WizardState):
     items_matrix = state.items_matrix if state.items_matrix is not None else np.zeros_like(height_map)
 
     units_matrix = add_command_centers(
-        randomized_matrix, num_centers, mirroring, height_map.shape, items_matrix
+        randomized_matrix, num_centers, mirroring, height_map.shape, items_matrix,
+        wall_matrix=state.wall_matrix
     )
 
     # Extract placed positions
@@ -325,7 +326,7 @@ def run_place_cc_manual(state: WizardState, row, col):
     rm_row = int(row * rm_h / h)
     rm_col = int(col * rm_w / w)
 
-    # Validate: must be land and not wall
+    # Validate: must be land, not wall, not on resource pool
     if rm_row < 0 or rm_row >= rm_h or rm_col < 0 or rm_col >= rm_w:
         return []
     if randomized_matrix[rm_row, rm_col] != 1:
@@ -334,6 +335,15 @@ def run_place_cc_manual(state: WizardState, row, col):
         return []
     if height_map[row, col] <= 0:
         return []
+    # Check distance from resource pools
+    if state.items_matrix is not None:
+        cc_clearance = 2
+        y_min = max(0, row - cc_clearance)
+        y_max = min(h, row + cc_clearance + 1)
+        x_min = max(0, col - cc_clearance)
+        x_max = min(w, col + cc_clearance + 1)
+        if np.any(state.items_matrix[y_min:y_max, x_min:x_max] != 0):
+            return []
 
     # Get mirrored positions in randomized_matrix coords
     mirrored_rm = _get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring)
@@ -352,17 +362,31 @@ def run_place_cc_manual(state: WizardState, row, col):
     if state.units_matrix is None:
         state.units_matrix = np.zeros((h, w), dtype=int)
 
-    # Assign CC IDs
-    existing_max = int(state.units_matrix.max()) if state.units_matrix.max() > 0 else 100
-    next_id = max(existing_max + 1, 101)
+    # FIFO: if adding this group would exceed 10 CCs, remove oldest groups first
+    max_ccs = 10
+    evicted = False
+    while len(state.cc_positions) + len(placed) > max_ccs and state.cc_groups:
+        oldest = state.cc_groups.pop(0)
+        for r2, c2 in oldest:
+            state.units_matrix[r2, c2] = 0
+            if (r2, c2) in state.cc_positions:
+                state.cc_positions.remove((r2, c2))
+        evicted = True
 
-    for pos in placed:
-        if state.units_matrix[pos[0], pos[1]] == 0:
-            state.units_matrix[pos[0], pos[1]] = next_id
-            next_id += 1
-
+    # Add new group
     state.cc_positions.extend(placed)
     state.cc_groups.append(placed)
+
+    # Rebuild all GIDs from scratch to keep team A/B assignments consistent
+    # Each group: first position = Team A, rest = Team B mirrors
+    state.units_matrix[:] = 0
+    for group_idx, group in enumerate(state.cc_groups):
+        team_a_id = 101 + group_idx
+        for i, (pr, pc) in enumerate(group):
+            if i == 0:
+                state.units_matrix[pr, pc] = team_a_id
+            else:
+                state.units_matrix[pr, pc] = team_a_id + 5
 
     return placed
 
@@ -402,7 +426,9 @@ def run_place_resources_random(state: WizardState):
     items_matrix = np.zeros_like(height_map)
 
     height_map_copy, items_matrix = add_resource_pulls(
-        randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix
+        randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix,
+        wall_matrix=state.wall_matrix,
+        units_matrix=state.units_matrix
     )
 
     resource_positions = list(zip(*np.where(items_matrix > 0)))
@@ -432,6 +458,15 @@ def run_place_resource_manual(state: WizardState, row, col):
         return []
     if height_map[row, col] <= 0:
         return []
+    # Check distance from command centers
+    if state.units_matrix is not None:
+        cc_clearance = 4
+        y_min = max(0, row - cc_clearance)
+        y_max = min(h, row + cc_clearance + 1)
+        x_min = max(0, col - cc_clearance)
+        x_max = min(w, col + cc_clearance + 1)
+        if np.any(state.units_matrix[y_min:y_max, x_min:x_max] > 0):
+            return []
 
     mirrored_rm = _get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring)
     scale_y = h / rm_h

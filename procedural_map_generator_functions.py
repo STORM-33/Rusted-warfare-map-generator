@@ -377,7 +377,8 @@ def _get_mirrored_positions(i, j, rows, cols, mirroring):
     return list(set(positions))
 
 
-def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, min_pool_distance=4):
+def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, min_pool_distance=4,
+                            wall_matrix=None, units_matrix=None, cc_clearance=4):
     """Check if a 3x3 pool can be placed at the given position on the height map."""
     h_rows, h_cols = height_map.shape
     if scaled_i - 1 < 0 or scaled_i + 1 >= h_rows or scaled_j - 1 < 0 or scaled_j + 1 >= h_cols:
@@ -385,6 +386,19 @@ def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, mi
     pool_area = height_map[scaled_i - 1:scaled_i + 2, scaled_j - 1:scaled_j + 2]
     if np.any(pool_area <= 0):
         return False
+    # Check walls (3x3 pool area must not overlap walls)
+    if wall_matrix is not None:
+        wall_area = wall_matrix[scaled_i - 1:scaled_i + 2, scaled_j - 1:scaled_j + 2]
+        if np.any(wall_area == 1):
+            return False
+    # Check distance from command centers
+    if units_matrix is not None:
+        y_min = max(0, scaled_i - cc_clearance)
+        y_max = min(h_rows, scaled_i + cc_clearance + 1)
+        x_min = max(0, scaled_j - cc_clearance)
+        x_max = min(h_cols, scaled_j + cc_clearance + 1)
+        if np.any(units_matrix[y_min:y_max, x_min:x_max] > 0):
+            return False
     for pi, pj in placed_positions:
         if abs(scaled_i - pi) < min_pool_distance and abs(scaled_j - pj) < min_pool_distance:
             return False
@@ -434,7 +448,8 @@ def _find_mirror_axis_positions(randomized_matrix, mirroring):
     return valid
 
 
-def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix):
+def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix,
+                       wall_matrix=None, units_matrix=None):
     rows, cols = randomized_matrix.shape
 
     forbidden_zones = _get_forbidden_zones(rows, cols, mirroring)
@@ -468,7 +483,8 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
 
         # All mirrored copies must be valid
         all_valid = all(
-            _is_valid_pool_position(si, sj, height_map, placed_positions)
+            _is_valid_pool_position(si, sj, height_map, placed_positions,
+                                    wall_matrix=wall_matrix, units_matrix=units_matrix)
             for si, sj in scaled_positions
         )
         if not all_valid:
@@ -488,7 +504,8 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
                 break
             si = int(ci * scale_factor_y)
             sj = int(cj * scale_factor_x)
-            if _is_valid_pool_position(si, sj, height_map, placed_positions):
+            if _is_valid_pool_position(si, sj, height_map, placed_positions,
+                                        wall_matrix=wall_matrix, units_matrix=units_matrix):
                 placed_positions.append((si, sj))
                 place_resource_pull(items_matrix, si, sj)
 
@@ -588,7 +605,8 @@ def _mirror_command_centers(selected_positions, mirroring, randomized_matrix, he
     return scaled_units_matrix
 
 
-def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_shape, items_matrix=None):
+def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_shape,
+                       items_matrix=None, wall_matrix=None):
     if mirroring not in ['horizontal', 'vertical', 'diagonal1', 'diagonal2', 'both', 'none']:
         logger.warning(f"Unsupported mirroring mode for command centers: {mirroring}")
         return np.zeros(height_map_shape, dtype=int)
@@ -602,10 +620,11 @@ def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_sh
 
     valid_positions, preferred_area = _find_valid_cc_positions(randomized_matrix, mirroring, margin)
 
+    scale_y = height_map_shape[0] / randomized_matrix.shape[0]
+    scale_x = height_map_shape[1] / randomized_matrix.shape[1]
+
     # Filter out positions that overlap with resource pools
     if items_matrix is not None:
-        scale_y = height_map_shape[0] / randomized_matrix.shape[0]
-        scale_x = height_map_shape[1] / randomized_matrix.shape[1]
         cc_clearance = 2  # tiles of clearance around a CC to avoid resource pools
 
         def _overlaps_resource_pool(pos):
@@ -618,9 +637,21 @@ def add_command_centers(randomized_matrix, num_centers, mirroring, height_map_sh
             return np.any(items_matrix[y_min:y_max, x_min:x_max] != 0)
 
         valid_positions = [p for p in valid_positions if not _overlaps_resource_pool(p)]
-        preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
-    else:
-        preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
+
+    # Filter out positions on walls
+    if wall_matrix is not None:
+        def _overlaps_wall(pos):
+            sy = int(pos[0] * scale_y)
+            sx = int(pos[1] * scale_x)
+            y_min = max(0, sy - 1)
+            y_max = min(wall_matrix.shape[0], sy + 2)
+            x_min = max(0, sx - 1)
+            x_max = min(wall_matrix.shape[1], sx + 2)
+            return np.any(wall_matrix[y_min:y_max, x_min:x_max] == 1)
+
+        valid_positions = [p for p in valid_positions if not _overlaps_wall(p)]
+
+    preferred_positions = [pos for pos in valid_positions if preferred_area[pos]]
 
     if len(valid_positions) < num_centers:
         raise ValueError("Not enough valid positions for command centers")
