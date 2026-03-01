@@ -319,10 +319,31 @@ export const renderSnapshotBase = (
   return mode;
 };
 
+const getCcTeamColor = (
+  unitsTileset: ExtractedTileset | undefined,
+  localId: number,
+): string => {
+  if (unitsTileset && localId >= 0 && localId < unitsTileset.tileCount) {
+    const offset = localId * 4;
+    const r = unitsTileset.centerLut[offset];
+    const g = unitsTileset.centerLut[offset + 1];
+    const b = unitsTileset.centerLut[offset + 2];
+    return `rgba(${r},${g},${b},0.94)`;
+  }
+  return "rgba(50,100,255,0.94)";
+};
+
+const getCcPlayerLabel = (localId: number): string => {
+  const pair = localId % 5;
+  const team = localId < 5 ? 0 : 1;
+  return String(pair * 2 + team + 1);
+};
+
 export const renderOverlay = (
   canvas: HTMLCanvasElement,
   snapshot: WizardSnapshot,
   mode: RenderMode,
+  tilesets?: ExtractedTilesets,
   tileSize = 20,
 ) => {
   const { rows, cols } = getSnapshotDimensions(snapshot);
@@ -358,40 +379,59 @@ export const renderOverlay = (
   }
 
   const unitsMatrix = snapshot.matrices.units_matrix;
+  const unitsTileset = tilesets?.units;
+  const unitsFirstGid = unitsTileset?.firstGid ?? 101;
+
+  // CC labels collected for text pass (drawn after all fills so text is on top)
+  const ccLabels: { label: string; cx: number; cy: number }[] = [];
+
   for (const [row, col] of snapshot.cc_positions) {
     const gid = unitsMatrix ? getMatrixValue(unitsMatrix, row, col) : 0;
-    const isTeamB = gid >= 106;
-    context.fillStyle = isTeamB ? "rgba(59,130,246,0.95)" : "rgba(239,68,68,0.95)";
+    const localId = gid > 0 ? gid - unitsFirstGid : 0;
     const x = col * cellSize;
     const y = row * cellSize;
+
     if (cellSize === 1) {
+      context.fillStyle = getCcTeamColor(unitsTileset, localId);
       context.fillRect(x, y, 1, 1);
     } else {
-      context.beginPath();
-      context.arc(
-        x + cellSize / 2,
-        y + cellSize / 2,
-        Math.max(2, cellSize * 0.28),
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
+      // Dark border (7x7)
+      context.fillStyle = "rgba(0,0,0,0.78)";
+      context.fillRect(x - 3, y - 3, 7, 7);
+      // Colored fill (5x5)
+      context.fillStyle = getCcTeamColor(unitsTileset, localId);
+      context.fillRect(x - 2, y - 2, 5, 5);
+      ccLabels.push({ label: getCcPlayerLabel(localId), cx: x, cy: y });
     }
   }
 
-  context.fillStyle = "rgba(34,197,94,0.95)";
+  // Resource pools: golden yellow 3x3
   for (const [row, col] of snapshot.resource_positions) {
     const x = col * cellSize;
     const y = row * cellSize;
     if (cellSize === 1) {
+      context.fillStyle = "rgba(255,220,50,0.86)";
       context.fillRect(x, y, 1, 1);
     } else {
-      context.fillRect(
-        x + Math.floor(cellSize * 0.25),
-        y + Math.floor(cellSize * 0.25),
-        Math.max(2, Math.floor(cellSize * 0.5)),
-        Math.max(2, Math.floor(cellSize * 0.5)),
-      );
+      context.fillStyle = "rgba(255,220,50,0.86)";
+      context.fillRect(x - 1, y - 1, 3, 3);
+    }
+  }
+
+  // Draw CC player labels on top
+  if (ccLabels.length > 0 && cellSize > 1) {
+    const fontSize = Math.max(8, Math.floor(cellSize * 0.15));
+    context.font = `bold ${fontSize}px Arial, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    for (const { label, cx, cy } of ccLabels) {
+      // Black outline
+      context.strokeStyle = "rgba(0,0,0,0.86)";
+      context.lineWidth = 2;
+      context.strokeText(label, cx, cy);
+      // White foreground
+      context.fillStyle = "rgba(255,255,255,1)";
+      context.fillText(label, cx, cy);
     }
   }
 };

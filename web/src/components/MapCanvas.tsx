@@ -78,7 +78,7 @@ export function MapCanvas({
     );
     activeRenderModeRef.current = mode;
     onRenderModeChange?.(mode);
-    renderOverlay(overlayCanvas, snapshot, mode);
+    renderOverlay(overlayCanvas, snapshot, mode, tilesets);
   }, [onRenderModeChange, requestedMode, snapshot, tilesets, view]);
 
   const eventToCell = (event: React.PointerEvent<HTMLDivElement>) => {

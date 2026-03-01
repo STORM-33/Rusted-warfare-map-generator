@@ -95,17 +95,19 @@ export function CoastlineStep({
           </select>
         </label>
         <label>
-          Tileset Pattern
+          Tileset
           <select
             value={tileset}
             onChange={(event) => onTilesetChange(Number(event.target.value))}
             disabled={disabled}
           >
-            {[1, 2, 3, 4, 5].map((value) => (
-              <option key={value} value={value}>
-                Blueprint {value}
-              </option>
-            ))}
+            {(["Forest", "Winter", "Volcanic", "Desert", "Jungle"] as const).map(
+              (name, index) => (
+                <option key={name} value={index + 1}>
+                  {name}
+                </option>
+              ),
+            )}
           </select>
         </label>
       </div>
