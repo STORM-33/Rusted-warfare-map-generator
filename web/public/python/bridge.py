@@ -68,8 +68,18 @@ def run_coastline(params_json="{}"):
     state.num_command_centers = int(params.get("numPlayers", params.get("num_command_centers", state.num_command_centers)))
     state.num_resource_pulls = int(params.get("numResources", params.get("num_resource_pulls", state.num_resource_pulls)))
     state.invalidate_from(WizardStep.COASTLINE)
-    map_pipeline.run_coastline(state)
-    return {"snapshot": _snapshot()}
+
+    frames = []
+
+    def collect_frame(label, matrix):
+        frames.append({
+            "label": label,
+            "shape": [int(matrix.shape[0]), int(matrix.shape[1])],
+            "data": matrix.astype(int, copy=False).ravel().tolist(),
+        })
+
+    map_pipeline.run_coastline(state, preview_cb=collect_frame)
+    return {"snapshot": _snapshot(), "frames": frames}
 
 
 def _expand_brush(row, col, brush_size, h, w):
@@ -93,6 +103,8 @@ def draw_walls(params_json="{}"):
     if state.wall_matrix is None or tuple(state.wall_matrix.shape) != (h, w):
         state.wall_matrix = np.zeros((h, w), dtype=int)
 
+    coast = state.coastline_height_map
+
     for pt in points:
         row, col = int(pt[0]), int(pt[1])
         brush_pts = _expand_brush(row, col, brush_size, h, w)
@@ -100,6 +112,8 @@ def draw_walls(params_json="{}"):
             mirrored = _get_mirrored_positions(br, bc, h, w, state.mirroring)
             for mr, mc in mirrored:
                 if 0 <= mr < h and 0 <= mc < w:
+                    if coast is not None and coast[mr, mc] <= 0:
+                        continue
                     if value == 2 and state.wall_matrix[mr, mc] == 0:
                         continue
                     state.wall_matrix[mr, mc] = value

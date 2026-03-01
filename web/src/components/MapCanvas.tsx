@@ -101,6 +101,38 @@ export function MapCanvas({
     return { row, col };
   };
 
+  const interpolateCells = (
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): [number, number][] => {
+    const dr = Math.abs(r1 - r0);
+    const dc = Math.abs(c1 - c0);
+    const sr = r0 < r1 ? 1 : -1;
+    const sc = c0 < c1 ? 1 : -1;
+    let err = dr - dc;
+    let r = r0;
+    let c = c0;
+    const cells: [number, number][] = [];
+    for (;;) {
+      cells.push([r, c]);
+      if (r === r1 && c === c1) {
+        break;
+      }
+      const e2 = 2 * err;
+      if (e2 > -dc) {
+        err -= dc;
+        r += sr;
+      }
+      if (e2 < dr) {
+        err += dr;
+        c += sc;
+      }
+    }
+    return cells;
+  };
+
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const cell = eventToCell(event);
     if (!cell) {
@@ -114,6 +146,7 @@ export function MapCanvas({
       return;
     }
     event.preventDefault();
+    (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
     drawingRef.current = true;
     const value: 0 | 1 | 2 = event.button === 2 ? 0 : drawValue;
     onDraw?.([[cell.row, cell.col]], value);
@@ -133,22 +166,43 @@ export function MapCanvas({
     if (marker === lastCellRef.current) {
       return;
     }
+    // Interpolate from last cell to current cell to fill gaps from fast movement
+    const lastParts = lastCellRef.current.split(":");
     lastCellRef.current = marker;
+    if (lastParts.length >= 2) {
+      const prevRow = Number(lastParts[0]);
+      const prevCol = Number(lastParts[1]);
+      if (Number.isFinite(prevRow) && Number.isFinite(prevCol)) {
+        const cells = interpolateCells(prevRow, prevCol, cell.row, cell.col);
+        // Skip the first cell — it was already drawn in the previous event
+        if (cells.length > 1) {
+          onDraw?.(cells.slice(1), value);
+          return;
+        }
+      }
+    }
     onDraw?.([[cell.row, cell.col]], value);
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (drawingRef.current) {
+      (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
+    }
     drawingRef.current = false;
     lastCellRef.current = "";
   };
 
+  const widthExpr = dimensions
+    ? `min(100%, calc((100vh - 10rem) * ${dimensions.cols} / ${dimensions.rows}))`
+    : "min(100%, calc(100vh - 10rem))";
+
   return (
     <div
       className={`map-canvas ${interactionMode}`}
+      style={{ width: widthExpr }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={stopDrawing}
-      onPointerLeave={stopDrawing}
       onContextMenu={(event) => event.preventDefault()}
     >
       <canvas ref={baseCanvasRef} className="map-layer" />
