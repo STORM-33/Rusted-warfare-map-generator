@@ -1,9 +1,13 @@
 /// <reference lib="webworker" />
 
 import type {
+  CoastlineFrame,
   MatrixKey,
   MatrixPayload,
+  QuickGenerateFrame,
+  SerializedCoastlineFrame,
   SerializedMatrixPayload,
+  SerializedQuickGenerateFrame,
   SerializedWizardSnapshot,
   WorkerAction,
   WorkerRequestMessage,
@@ -204,7 +208,38 @@ const invokeRpc = async (
     transferables.push(tmxBytes.buffer);
   }
 
-  return { snapshot, tmxBytes, transferables };
+  let frames: CoastlineFrame[] | undefined;
+  const rawFrames = resultObject.frames;
+  if (Array.isArray(rawFrames) && rawFrames.length > 0) {
+    frames = (rawFrames as SerializedCoastlineFrame[]).map((f) => {
+      const typed =
+        f.data instanceof Int32Array ? f.data : Int32Array.from(f.data);
+      transferables.push(typed.buffer);
+      return { label: f.label, shape: [f.shape[0], f.shape[1]] as [number, number], data: typed };
+    });
+  }
+
+  // Normalize quick_generate frames (each frame has multiple matrix payloads)
+  let quickFrames: QuickGenerateFrame[] | undefined;
+  const rawQuickFrames = resultObject.quick_frames;
+  if (Array.isArray(rawQuickFrames) && rawQuickFrames.length > 0) {
+    quickFrames = (rawQuickFrames as SerializedQuickGenerateFrame[]).map((f) => {
+      const hm = normalizeMatrix(f.height_map, transferables)!;
+      const result: QuickGenerateFrame = { label: f.label, height_map: hm };
+      if (f.id_matrix) {
+        result.id_matrix = normalizeMatrix(f.id_matrix, transferables);
+      }
+      if (f.items_matrix) {
+        result.items_matrix = normalizeMatrix(f.items_matrix, transferables);
+      }
+      if (f.units_matrix) {
+        result.units_matrix = normalizeMatrix(f.units_matrix, transferables);
+      }
+      return result;
+    });
+  }
+
+  return { snapshot, tmxBytes, frames, quickFrames, transferables };
 };
 
 ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
@@ -218,7 +253,7 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
       post({ type: "init_complete", requestId });
       return;
     }
-    const { snapshot, tmxBytes, transferables } = await invokeRpc(type, params);
+    const { snapshot, tmxBytes, frames, quickFrames, transferables } = await invokeRpc(type, params);
     post(
       {
         type: "step_complete",
@@ -226,6 +261,8 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
         action: type,
         snapshot,
         tmxBytes,
+        frames,
+        quickFrames,
       },
       transferables,
     );
@@ -241,4 +278,4 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
   }
 };
 
-export {};
+export { };

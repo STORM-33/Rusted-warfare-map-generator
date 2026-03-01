@@ -32,19 +32,57 @@ const buildCenterLut = (
   tileHeight: number,
   columns: number,
   tileCount: number,
+  useMaxSaturation: boolean = false,
 ) => {
   const lut = new Uint8ClampedArray(tileCount * 4);
   for (let tileId = 0; tileId < tileCount; tileId += 1) {
     const tileRow = Math.floor(tileId / columns);
     const tileCol = tileId % columns;
-    const cx = tileCol * tileWidth + Math.floor(tileWidth / 2);
-    const cy = tileRow * tileHeight + Math.floor(tileHeight / 2);
-    const src = (cy * imageData.width + cx) * 4;
+    const startX = tileCol * tileWidth;
+    const startY = tileRow * tileHeight;
+
+    let bestR = 0, bestG = 0, bestB = 0, bestA = 255;
+    let foundSaturated = false;
+
+    if (useMaxSaturation) {
+      let maxSat = -1;
+      for (let y = 0; y < tileHeight; y++) {
+        for (let x = 0; x < tileWidth; x++) {
+          const src = ((startY + y) * imageData.width + (startX + x)) * 4;
+          const r = imageData.data[src];
+          const g = imageData.data[src + 1];
+          const b = imageData.data[src + 2];
+          const a = imageData.data[src + 3];
+
+          if (a > 100) {
+            const min = Math.min(r, g, b);
+            const max = Math.max(r, g, b);
+            const sat = max - min;
+            if (sat > maxSat && sat > 20) {
+              maxSat = sat;
+              bestR = r; bestG = g; bestB = b; bestA = a;
+              foundSaturated = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (!foundSaturated) {
+      const cx = startX + Math.floor(tileWidth / 2);
+      const cy = startY + Math.floor(tileHeight / 2);
+      const src = (cy * imageData.width + cx) * 4;
+      bestR = imageData.data[src];
+      bestG = imageData.data[src + 1];
+      bestB = imageData.data[src + 2];
+      bestA = imageData.data[src + 3];
+    }
+
     const dst = tileId * 4;
-    lut[dst] = imageData.data[src];
-    lut[dst + 1] = imageData.data[src + 1];
-    lut[dst + 2] = imageData.data[src + 2];
-    lut[dst + 3] = imageData.data[src + 3];
+    lut[dst] = bestR;
+    lut[dst + 1] = bestG;
+    lut[dst + 2] = bestB;
+    lut[dst + 3] = bestA;
   }
   return lut;
 };
@@ -79,12 +117,15 @@ const extractTileset = async (tilesetElement: Element) => {
   }
   context.drawImage(image, 0, 0);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const isUnits = name === "50pCommandCenter";
+
   const centerLut = buildCenterLut(
     imageData,
     tileWidth,
     tileHeight,
     columns,
     tileCount,
+    isUnits
   );
 
   return {

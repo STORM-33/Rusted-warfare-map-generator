@@ -7,6 +7,8 @@ type CoastlineStepProps = {
   mirroring: string;
   tileset: number;
   disabled?: boolean;
+  animating?: boolean;
+  animationProgress?: string;
   onToggleCell: (row: number, col: number) => void;
   onHeightChange: (value: number) => void;
   onWidthChange: (value: number) => void;
@@ -31,6 +33,8 @@ export function CoastlineStep({
   mirroring,
   tileset,
   disabled,
+  animating,
+  animationProgress,
   onToggleCell,
   onHeightChange,
   onWidthChange,
@@ -38,6 +42,7 @@ export function CoastlineStep({
   onTilesetChange,
   onGenerate,
 }: CoastlineStepProps) {
+  const isDisabled = disabled || animating;
   return (
     <section className="panel-section">
       <h2>1. Coastline</h2>
@@ -50,7 +55,7 @@ export function CoastlineStep({
               type="button"
               className={`grid-cell ${value ? "on" : "off"}`}
               onClick={() => onToggleCell(rowIndex, colIndex)}
-              disabled={disabled}
+              disabled={isDisabled}
             />
           )),
         )}
@@ -65,7 +70,7 @@ export function CoastlineStep({
             step={20}
             value={height}
             onChange={(event) => onHeightChange(Number(event.target.value))}
-            disabled={disabled}
+            disabled={isDisabled}
           />
         </label>
         <label>
@@ -77,7 +82,7 @@ export function CoastlineStep({
             step={20}
             value={width}
             onChange={(event) => onWidthChange(Number(event.target.value))}
-            disabled={disabled}
+            disabled={isDisabled}
           />
         </label>
         <label>
@@ -85,7 +90,7 @@ export function CoastlineStep({
           <select
             value={mirroring}
             onChange={(event) => onMirroringChange(event.target.value)}
-            disabled={disabled}
+            disabled={isDisabled}
           >
             {MIRROR_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -99,11 +104,17 @@ export function CoastlineStep({
           <select
             value={tileset}
             onChange={(event) => onTilesetChange(Number(event.target.value))}
-            disabled={disabled}
+            disabled={isDisabled}
           >
-            {(["Forest", "Winter", "Volcanic", "Desert", "Jungle"] as const).map(
-              (name, index) => (
-                <option key={name} value={index + 1}>
+            {[
+              { id: 5, name: "Jungle" },
+              { id: 2, name: "Winter" },
+              { id: 3, name: "Volcanic" },
+              { id: 4, name: "Desert" },
+              { id: 1, name: "Forest" },
+            ].map(
+              ({ id, name }) => (
+                <option key={name} value={id}>
                   {name}
                 </option>
               ),
@@ -111,8 +122,8 @@ export function CoastlineStep({
           </select>
         </label>
       </div>
-      <button type="button" className="primary-btn" onClick={onGenerate} disabled={disabled}>
-        Generate Coastline
+      <button type="button" className="primary-btn" onClick={onGenerate} disabled={isDisabled}>
+        {animating ? `Generating... ${animationProgress ?? ""}` : "Generate Coastline"}
       </button>
     </section>
   );

@@ -3,9 +3,11 @@
 type CommandCenterStepProps = {
   numPlayers: number;
   manualMode: boolean;
+  mirrored: boolean;
   disabled?: boolean;
   onNumPlayersChange: (value: number) => void;
   onManualModeChange: (manual: boolean) => void;
+  onMirroredChange: (mirrored: boolean) => void;
   onRandom: () => void;
   onUndo: () => void;
   onClear: () => void;
@@ -14,9 +16,11 @@ type CommandCenterStepProps = {
 export function CommandCenterStep({
   numPlayers,
   manualMode,
+  mirrored,
   disabled,
   onNumPlayersChange,
   onManualModeChange,
+  onMirroredChange,
   onRandom,
   onUndo,
   onClear,
@@ -37,6 +41,17 @@ export function CommandCenterStep({
             disabled={disabled}
           />
         </label>
+        {manualMode && (
+          <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.5rem" }}>
+            <input
+              type="checkbox"
+              checked={mirrored}
+              onChange={(e) => onMirroredChange(e.target.checked)}
+              disabled={disabled}
+            />
+            Mirrored Placement
+          </label>
+        )}
       </div>
       <div className="button-row">
         <button

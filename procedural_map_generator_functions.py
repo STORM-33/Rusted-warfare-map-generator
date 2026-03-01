@@ -373,8 +373,14 @@ def _get_mirrored_positions(i, j, rows, cols, mirroring):
         positions.append((rows - 1 - i, j))
         positions.append((i, cols - 1 - j))
         positions.append((rows - 1 - i, cols - 1 - j))
-    # Deduplicate (positions on mirror axis map to themselves)
-    return list(set(positions))
+    # Deduplicate while preserving order (so original is always first)
+    seen = set()
+    result = []
+    for p in positions:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+    return result
 
 
 def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, min_pool_distance=4,
@@ -457,7 +463,7 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
 
     if not available_tiles:
         logger.warning("No valid positions for resource pulls")
-        return height_map, items_matrix
+        return height_map, items_matrix, []
 
     scale_factor_x = height_map.shape[1] / cols
     scale_factor_y = height_map.shape[0] / rows
@@ -512,7 +518,7 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
     if len(placed_positions) < num_resource_pulls:
         logger.warning(f"Could only place {len(placed_positions)} of {num_resource_pulls} resource pulls")
 
-    return height_map, items_matrix
+    return height_map, items_matrix, placed_positions
 
 
 def _find_valid_cc_positions(randomized_matrix, mirroring, margin):

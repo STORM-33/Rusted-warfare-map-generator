@@ -46,6 +46,11 @@ export function useWizardState(totalSteps = WIZARD_STEP_LABELS.length) {
     [maxReachableStep],
   );
 
+  const resetWizard = useCallback(() => {
+    setCurrentStep(0);
+    setCompletedStep(-1);
+  }, []);
+
   const steps = useMemo(() => [...WIZARD_STEP_LABELS], []);
 
   return {
@@ -58,5 +63,6 @@ export function useWizardState(totalSteps = WIZARD_STEP_LABELS.length) {
     prevStep,
     markStepComplete,
     isStepAccessible,
+    resetWizard,
   };
 }

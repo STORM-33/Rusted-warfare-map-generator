@@ -48,15 +48,18 @@ export type WorkerAction =
   | "clear_walls"
   | "run_height_ocean"
   | "place_cc_manual"
+  | "remove_cc_manual"
   | "place_cc_random"
   | "undo_cc"
   | "clear_cc"
   | "place_resource_manual"
+  | "remove_resource_manual"
   | "place_resource_random"
   | "undo_resource"
   | "clear_resource"
   | "get_state_snapshot"
   | "run_finalize"
+  | "quick_generate"
   | "reset_state";
 
 export interface WorkerRequestMessage {
@@ -76,12 +79,42 @@ export interface WorkerInitCompleteMessage {
   requestId?: string;
 }
 
+export interface CoastlineFrame {
+  label: string;
+  shape: [number, number];
+  data: Int32Array;
+}
+
+export interface SerializedCoastlineFrame {
+  label: string;
+  shape: [number, number];
+  data: number[] | Int32Array;
+}
+
+export interface QuickGenerateFrame {
+  label: string;
+  height_map: MatrixPayload;
+  id_matrix?: MatrixPayload;
+  items_matrix?: MatrixPayload;
+  units_matrix?: MatrixPayload;
+}
+
+export interface SerializedQuickGenerateFrame {
+  label: string;
+  height_map: SerializedMatrixPayload;
+  id_matrix?: SerializedMatrixPayload | null;
+  items_matrix?: SerializedMatrixPayload | null;
+  units_matrix?: SerializedMatrixPayload | null;
+}
+
 export interface WorkerStepCompleteMessage {
   type: "step_complete";
   requestId: string;
   action: WorkerAction;
   snapshot?: WizardSnapshot;
   tmxBytes?: Uint8Array;
+  frames?: CoastlineFrame[];
+  quickFrames?: QuickGenerateFrame[];
 }
 
 export interface WorkerErrorMessage {

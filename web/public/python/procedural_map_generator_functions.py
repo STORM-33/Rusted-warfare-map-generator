@@ -1,5 +1,4 @@
 import logging
-import math
 import numpy as np
 import random
 from perlin_noise import PerlinNoise
@@ -359,44 +358,6 @@ def _select_spaced_positions(available_tiles, num_positions, rows, cols):
     return [tuple(tiles[i]) for i in placed_idx]
 
 
-def _diagonal_fill(i, j, rows, cols, anti=False):
-    """Return filled target cells for diagonal mirroring of source (i, j).
-
-    When rows != cols the proportional mapping stretches one axis, so a single
-    rounded point leaves gaps.  We fill ceil(step) cells in the stretched
-    dimension to keep the mirrored image continuous.
-    """
-    rm = max(rows - 1, 1)
-    cm = max(cols - 1, 1)
-    if anti:
-        mr_f = rm - j * rm / cm
-        mc_f = cm - i * cm / rm
-    else:
-        mr_f = j * rm / cm
-        mc_f = i * cm / rm
-
-    if rows == cols:
-        return [(round(mr_f), round(mc_f))]
-
-    r_step = rm / cm          # target-row distance per source-column step
-    c_step = cm / rm          # target-col distance per source-row step
-
-    r_fill = max(1, math.ceil(r_step))
-    c_fill = max(1, math.ceil(c_step))
-
-    mr_base = round(mr_f)
-    mc_base = round(mc_f)
-
-    r_half = (r_fill - 1) // 2
-    c_half = (c_fill - 1) // 2
-
-    return [
-        (mr_base - r_half + dr, mc_base - c_half + dc)
-        for dr in range(r_fill)
-        for dc in range(c_fill)
-    ]
-
-
 def _get_mirrored_positions(i, j, rows, cols, mirroring):
     """Return all positions (including original) that a point maps to after mirroring."""
     positions = [(i, j)]
@@ -405,15 +366,21 @@ def _get_mirrored_positions(i, j, rows, cols, mirroring):
     elif mirroring == "vertical":
         positions.append((i, cols - 1 - j))
     elif mirroring == "diagonal1":
-        positions.extend(_diagonal_fill(i, j, rows, cols, anti=False))
+        positions.append((j, i))
     elif mirroring == "diagonal2":
-        positions.extend(_diagonal_fill(i, j, rows, cols, anti=True))
+        positions.append((rows - 1 - j, cols - 1 - i))
     elif mirroring == "both":
         positions.append((rows - 1 - i, j))
         positions.append((i, cols - 1 - j))
         positions.append((rows - 1 - i, cols - 1 - j))
-    # Deduplicate (positions on mirror axis map to themselves)
-    return list(set(positions))
+    # Deduplicate while preserving order (so original is always first)
+    seen = set()
+    result = []
+    for p in positions:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+    return result
 
 
 def _is_valid_pool_position(scaled_i, scaled_j, height_map, placed_positions, min_pool_distance=4,
@@ -496,7 +463,7 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
 
     if not available_tiles:
         logger.warning("No valid positions for resource pulls")
-        return height_map, items_matrix
+        return height_map, items_matrix, []
 
     scale_factor_x = height_map.shape[1] / cols
     scale_factor_y = height_map.shape[0] / rows
@@ -551,7 +518,7 @@ def add_resource_pulls(randomized_matrix, num_resource_pulls, mirroring, height_
     if len(placed_positions) < num_resource_pulls:
         logger.warning(f"Could only place {len(placed_positions)} of {num_resource_pulls} resource pulls")
 
-    return height_map, items_matrix
+    return height_map, items_matrix, placed_positions
 
 
 def _find_valid_cc_positions(randomized_matrix, mirroring, margin):

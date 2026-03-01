@@ -15,9 +15,8 @@ type MapCanvasProps = {
   requestedMode: RenderPreference;
   interactionMode: InteractionMode;
   drawValue: 1 | 2;
-  brushSize: number;
   onDraw?: (points: [number, number][], value: 0 | 1 | 2) => void;
-  onClickCell?: (row: number, col: number) => void;
+  onClickCell?: (row: number, col: number, isRightClick: boolean) => void;
   onRenderModeChange?: (mode: RenderMode) => void;
 };
 
@@ -43,7 +42,6 @@ export function MapCanvas({
   requestedMode,
   interactionMode,
   drawValue,
-  brushSize,
   onDraw,
   onClickCell,
   onRenderModeChange,
@@ -115,7 +113,7 @@ export function MapCanvas({
     let r = r0;
     let c = c0;
     const cells: [number, number][] = [];
-    for (;;) {
+    for (; ;) {
       cells.push([r, c]);
       if (r === r1 && c === c1) {
         break;
@@ -138,8 +136,8 @@ export function MapCanvas({
     if (!cell) {
       return;
     }
-    if (interactionMode === "click" && event.button === 0) {
-      onClickCell?.(cell.row, cell.col);
+    if (interactionMode === "click" && (event.button === 0 || event.button === 2)) {
+      onClickCell?.(cell.row, cell.col, event.button === 2);
       return;
     }
     if (interactionMode !== "draw") {
@@ -205,8 +203,8 @@ export function MapCanvas({
       onPointerUp={stopDrawing}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <canvas ref={baseCanvasRef} className="map-layer" />
-      <canvas ref={overlayCanvasRef} className="map-layer overlay" />
+      <canvas id="map-canvas-base" ref={baseCanvasRef} className="map-layer" />
+      <canvas id="map-canvas-overlay" ref={overlayCanvasRef} className="map-layer overlay" />
     </div>
   );
 }

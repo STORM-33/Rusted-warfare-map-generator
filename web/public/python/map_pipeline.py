@@ -2,11 +2,18 @@ import gzip
 import base64
 import logging
 import random
+import os
+import sys
 
 import numpy as np
 import xml.etree.ElementTree as ET
 from scipy.ndimage import distance_transform_cdt
 
+
+def resource_path(relative_path):
+    """Resolve path to bundled data file (PyInstaller-compatible)."""
+    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
+    return os.path.join(base, relative_path)
 
 from wizard_state import WizardState, WizardStep
 from procedural_map_generator_functions import (
@@ -205,9 +212,6 @@ def _bias_terrain_near_walls(height_map, wall_matrix, num_height_levels):
 
     Cells adjacent to walls get pushed toward stone/soil, fading to grass further
     away.  Water cells (<=0) are never modified.
-
-    When a wall is close to water the boost is capped so the terrain has enough
-    room to ramp down smoothly (~3 tiles per height level).
     """
     wall_mask = wall_matrix == 1
     # Distance from each cell to the nearest wall cell (chessboard metric)
@@ -223,25 +227,11 @@ def _bias_terrain_near_walls(height_map, wall_matrix, num_height_levels):
     # (e.g. level 5 = stone for default 7 levels)
     max_target = min(num_height_levels, 5)
 
-    # --- water-proximity cap ---
-    # Distance from each cell to the nearest water cell (chessboard metric)
-    water_mask = height_map <= 0
-    if water_mask.any():
-        dist_to_water = distance_transform_cdt(~water_mask, metric='chessboard').astype(float)
-        # Each height level needs ~3 tiles of transition space
-        water_cap = np.floor(dist_to_water / 3.0).astype(int)
-        water_cap = np.clip(water_cap, 1, max_target)
-        effective_max = np.minimum(max_target, water_cap)
-    else:
-        effective_max = max_target
-
-    # Compute boosted level: blend current level toward effective_max based on influence
+    # Compute boosted level: blend current level toward max_target based on influence
     current = height_map[land_mask].astype(float)
-    target = effective_max[land_mask] if isinstance(effective_max, np.ndarray) else effective_max
-    boosted = current + influence[land_mask] * (target - current)
+    boosted = current + influence[land_mask] * (max_target - current)
     # Round to integer levels, but never go below the current level
-    cap = effective_max[land_mask] if isinstance(effective_max, np.ndarray) else effective_max
-    boosted = np.clip(np.round(boosted).astype(int), height_map[land_mask], cap)
+    boosted = np.clip(np.round(boosted).astype(int), height_map[land_mask], max_target)
 
     result = height_map.copy()
     result[land_mask] = boosted
@@ -307,6 +297,11 @@ def run_place_cc_random(state: WizardState):
     mirroring = state.mirroring
     num_centers = state.num_command_centers
 
+    if height_map is None:
+        height_map = np.ones((state.height, state.width), dtype=int)
+    if randomized_matrix is None:
+        randomized_matrix = np.ones((5, 5), dtype=int)
+
     # Build items_matrix from current resource placements
     items_matrix = state.items_matrix if state.items_matrix is not None else np.zeros_like(height_map)
 
@@ -324,11 +319,11 @@ def run_place_cc_random(state: WizardState):
     state.completed_step = max(state.completed_step, int(WizardStep.COMMAND_CENTERS))
 
 
-def run_place_cc_manual(state: WizardState, row, col):
+def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
     """Place single CC + mirrors. Returns list of placed (row, col) positions."""
     height_map = state.height_map
     h, w = height_map.shape
-    mirroring = state.mirroring
+    mirroring = state.mirroring if mirrored else "none"
     randomized_matrix = state.randomized_matrix
     rm_h, rm_w = randomized_matrix.shape
 
@@ -372,33 +367,117 @@ def run_place_cc_manual(state: WizardState, row, col):
     if state.units_matrix is None:
         state.units_matrix = np.zeros((h, w), dtype=int)
 
+    # Convert old groups to new tuple format if needed
+    for i, group in enumerate(state.cc_groups):
+        if isinstance(group, list):
+            state.cc_groups[i] = {"id": 101 + i, "mirrored": True, "positions": group}
+
     # FIFO: if adding this group would exceed 10 CCs, remove oldest groups first
     max_ccs = 10
     evicted = False
     while len(state.cc_positions) + len(placed) > max_ccs and state.cc_groups:
         oldest = state.cc_groups.pop(0)
-        for r2, c2 in oldest:
+        positions = oldest["positions"] if isinstance(oldest, dict) else oldest
+        for r2, c2 in positions:
             state.units_matrix[r2, c2] = 0
             if (r2, c2) in state.cc_positions:
                 state.cc_positions.remove((r2, c2))
         evicted = True
 
+    # Find lowest available ID
+    ID_TO_TEAM = {101: 1, 106: 2, 102: 3, 107: 4, 103: 5, 108: 6, 104: 7, 109: 8, 105: 9, 110: 10}
+    TEAM_TO_ID = {1: 101, 2: 106, 3: 102, 4: 107, 5: 103, 6: 108, 7: 104, 8: 109, 9: 105, 10: 110}
+
+    used_ids = set()
+    for g in state.cc_groups:
+        if isinstance(g, dict):
+            used_ids.add(g["id"])
+            if len(g["positions"]) > 1:
+                used_ids.add(g["id"] + 5)
+
+    team_a_id = 101
+    if mirrored or len(placed) > 1:
+        for i in range(5):
+            candidate = 101 + i
+            if candidate not in used_ids and (candidate + 5) not in used_ids:
+                team_a_id = candidate
+                break
+    else:
+        used_teams = {ID_TO_TEAM.get(uid, 1) for uid in used_ids}
+        for team in range(1, 11):
+            if team not in used_teams:
+                team_a_id = TEAM_TO_ID.get(team, 101)
+                break
+
     # Add new group
     state.cc_positions.extend(placed)
-    state.cc_groups.append(placed)
+    state.cc_groups.append({"id": team_a_id, "mirrored": mirrored, "positions": placed})
 
-    # Rebuild all GIDs from scratch to keep team A/B assignments consistent
-    # Each group: first position = Team A, rest = Team B mirrors
+    _rebuild_cc_matrix(state)
+
+    return placed
+
+
+def run_remove_cc_manual(state: WizardState, row, col):
+    if state.units_matrix is None or not state.cc_groups:
+        return False
+
+    # Find closest CC within 3 tiles
+    closest_group_idx = -1
+    min_dist = 999
+    
+    for i, group in enumerate(state.cc_groups):
+        positions = group["positions"] if isinstance(group, dict) else group
+        for pr, pc in positions:
+            dist = max(abs(pr - row), abs(pc - col))
+            if dist <= 3 and dist < min_dist:
+                min_dist = dist
+                closest_group_idx = i
+
+    if closest_group_idx == -1:
+        return False
+
+    removed_group = state.cc_groups.pop(closest_group_idx)
+    is_mirrored = removed_group.get("mirrored", True) if isinstance(removed_group, dict) else True
+    positions = removed_group["positions"] if isinstance(removed_group, dict) else removed_group
+
+    for r2, c2 in positions:
+        state.units_matrix[r2, c2] = 0
+        if (r2, c2) in state.cc_positions:
+            state.cc_positions.remove((r2, c2))
+
+    # If it was a mirrored CC being removed, we shift the IDs down to fill the gap.
+    # Otherwise, we leave the IDs alone (sequential sparse pinning).
+    if is_mirrored:
+        used_by_unmirrored = set()
+        for g in state.cc_groups:
+            if isinstance(g, dict) and not g.get("mirrored", True):
+                used_by_unmirrored.add(g["id"])
+                
+        candidate = 101
+        for group in state.cc_groups:
+            if isinstance(group, dict) and group.get("mirrored", True):
+                while candidate in used_by_unmirrored or (candidate + 5) in used_by_unmirrored:
+                    candidate += 1
+                group["id"] = candidate
+                candidate += 1
+
+    _rebuild_cc_matrix(state)
+    return True
+
+def _rebuild_cc_matrix(state):
     state.units_matrix[:] = 0
-    for group_idx, group in enumerate(state.cc_groups):
-        team_a_id = 101 + group_idx
-        for i, (pr, pc) in enumerate(group):
-            if i == 0:
+    for i, group in enumerate(state.cc_groups):
+        if isinstance(group, list):
+            state.cc_groups[i] = {"id": 101 + i, "mirrored": True, "positions": group}
+            group = state.cc_groups[i]
+            
+        team_a_id = group["id"]
+        for j, (pr, pc) in enumerate(group["positions"]):
+            if j == 0:
                 state.units_matrix[pr, pc] = team_a_id
             else:
                 state.units_matrix[pr, pc] = team_a_id + 5
-
-    return placed
 
 
 def undo_last_cc(state: WizardState):
@@ -407,11 +486,17 @@ def undo_last_cc(state: WizardState):
         return
 
     last_group = state.cc_groups.pop()
-    for r, c in last_group:
-        if state.units_matrix is not None:
-            state.units_matrix[r, c] = 0
+    positions = last_group["positions"] if isinstance(last_group, dict) else last_group
+    for r, c in positions:
         if (r, c) in state.cc_positions:
             state.cc_positions.remove((r, c))
+
+    if state.units_matrix is None:
+        return
+    if state.cc_groups:
+        _rebuild_cc_matrix(state)
+    else:
+        state.units_matrix[:] = 0
 
 
 def clear_all_cc(state: WizardState):
@@ -433,15 +518,18 @@ def run_place_resources_random(state: WizardState):
     mirroring = state.mirroring
     num_resource_pulls = state.num_resource_pulls
 
+    if height_map is None:
+        height_map = np.ones((state.height, state.width), dtype=int)
+    if randomized_matrix is None:
+        randomized_matrix = np.ones((5, 5), dtype=int)
+
     items_matrix = np.zeros_like(height_map)
 
-    height_map_copy, items_matrix = add_resource_pulls(
+    height_map_copy, items_matrix, resource_positions = add_resource_pulls(
         randomized_matrix, num_resource_pulls, mirroring, height_map, items_matrix,
         wall_matrix=state.wall_matrix,
         units_matrix=state.units_matrix
     )
-
-    resource_positions = list(zip(*np.where(items_matrix > 0)))
 
     state.items_matrix = items_matrix
     state.resource_positions = resource_positions
@@ -449,11 +537,11 @@ def run_place_resources_random(state: WizardState):
     state.completed_step = max(state.completed_step, int(WizardStep.RESOURCES))
 
 
-def run_place_resource_manual(state: WizardState, row, col):
+def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
     """Place single resource + mirrors. Returns list of placed (row, col) positions."""
     height_map = state.height_map
     h, w = height_map.shape
-    mirroring = state.mirroring
+    mirroring = state.mirroring if mirrored else "none"
     randomized_matrix = state.randomized_matrix
     rm_h, rm_w = randomized_matrix.shape
 
@@ -488,7 +576,17 @@ def run_place_resource_manual(state: WizardState, row, col):
         sc = int(mc * scale_x)
         sr = min(sr, h - 1)
         sc = min(sc, w - 1)
-        placed.append((sr, sc))
+        
+        # Check if this position is too close to an already placed position in this mirror group
+        # If it is within 3 tiles (the radius of a resource pool), merge them by skipping it
+        too_close = False
+        for pr, pc in placed:
+            if abs(pr - sr) <= 3 and abs(pc - sc) <= 3:
+                too_close = True
+                break
+                
+        if not too_close:
+            placed.append((sr, sc))
 
     if state.items_matrix is None:
         state.items_matrix = np.zeros((h, w), dtype=int)
@@ -501,6 +599,38 @@ def run_place_resource_manual(state: WizardState, row, col):
     state.resource_groups.append(placed)
 
     return placed
+
+
+def run_remove_resource_manual(state: WizardState, row, col):
+    """Removes a resource pool if clicked nearby."""
+    if state.items_matrix is None or not state.resource_groups:
+        return False
+
+    closest_group_idx = -1
+    min_dist = 999
+    
+    for i, group in enumerate(state.resource_groups):
+        for pr, pc in group:
+            dist = max(abs(pr - row), abs(pc - col))
+            if dist <= 3 and dist < min_dist:
+                min_dist = dist
+                closest_group_idx = i
+
+    if closest_group_idx == -1:
+        return False
+
+    removed_group = state.resource_groups.pop(closest_group_idx)
+    h, w = state.items_matrix.shape
+    for r, c in removed_group:
+        for dr in range(-1, 2):
+            for dc in range(-1, 2):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < h and 0 <= nc < w:
+                    state.items_matrix[nr, nc] = 0
+        if (r, c) in state.resource_positions:
+            state.resource_positions.remove((r, c))
+
+    return True
 
 
 def undo_last_resource(state: WizardState):
@@ -604,8 +734,8 @@ def run_finalize(state: WizardState, preview_cb=None):
                    items_matrix.copy(), units_matrix.copy())
 
 
-def write_tmx(state: WizardState, blueprint_xml_str: str):
-    """Encode TMX using an in-memory blueprint XML string and return bytes."""
+def write_tmx(state: WizardState, blueprint_xml=None):
+    """Encode TMX and return bytes (or write file when no blueprint is provided)."""
     height_map = state.height_map
     id_matrix = state.id_matrix
     items_matrix = state.items_matrix if state.items_matrix is not None else np.zeros_like(height_map)
@@ -625,7 +755,13 @@ def write_tmx(state: WizardState, blueprint_xml_str: str):
     gzip_data = gzip.compress(tile_data)
     base64_data_ground = base64.b64encode(gzip_data)
 
-    root = ET.fromstring(blueprint_xml_str)
+    if blueprint_xml:
+        root = ET.fromstring(blueprint_xml)
+        tree = ET.ElementTree(root)
+    else:
+        template_path = resource_path(f"generator_blueprint{state.pattern}.tmx")
+        tree = ET.parse(template_path)
+        root = tree.getroot()
 
     root.set('width', str(w))
     root.set('height', str(h))
@@ -645,4 +781,10 @@ def write_tmx(state: WizardState, blueprint_xml_str: str):
             if data_elem is not None:
                 data_elem.text = layer_data_map[name]
 
-    return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+    if blueprint_xml:
+        return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+
+    output_file = os.path.join(state.output_path, "generated_map.tmx")
+    tree.write(output_file, encoding='UTF-8', xml_declaration=True)
+    logger.info(f"Map has been created at: {output_file}")
+    return output_file

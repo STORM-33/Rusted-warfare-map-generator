@@ -353,7 +353,10 @@ export const renderOverlay = (
     return;
   }
 
-  const cellSize = mode === "full" ? tileSize : 1;
+  // In sampled mode, scale the overlay up so CC/resource markers and labels
+  // have enough pixel resolution (mirroring the EXE which scales the overlay
+  // pixmap to the widget size before drawing text).
+  const cellSize = mode === "full" ? tileSize : Math.max(1, Math.ceil(600 / Math.max(rows, cols)));
   canvas.width = cols * cellSize;
   canvas.height = rows * cellSize;
 
@@ -372,7 +375,7 @@ export const renderOverlay = (
           continue;
         }
         context.fillStyle =
-          wallValue === 2 ? "rgba(59,130,246,0.55)" : "rgba(249,115,22,0.45)";
+          wallValue === 2 ? "rgba(50,150,200,0.55)" : "rgba(200,50,50,0.55)";
         context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
       }
     }
@@ -391,36 +394,25 @@ export const renderOverlay = (
     const x = col * cellSize;
     const y = row * cellSize;
 
-    if (cellSize === 1) {
-      context.fillStyle = getCcTeamColor(unitsTileset, localId);
-      context.fillRect(x, y, 1, 1);
-    } else {
-      // Dark border (7x7)
-      context.fillStyle = "rgba(0,0,0,0.78)";
-      context.fillRect(x - 3, y - 3, 7, 7);
-      // Colored fill (5x5)
-      context.fillStyle = getCcTeamColor(unitsTileset, localId);
-      context.fillRect(x - 2, y - 2, 5, 5);
-      ccLabels.push({ label: getCcPlayerLabel(localId), cx: x, cy: y });
-    }
+    // Dark border (7x7 cells) and colored fill (5x5 cells), matching EXE overlay
+    context.fillStyle = "rgba(0,0,0,0.78)";
+    context.fillRect(x - 3 * cellSize, y - 3 * cellSize, 7 * cellSize, 7 * cellSize);
+    context.fillStyle = getCcTeamColor(unitsTileset, localId);
+    context.fillRect(x - 2 * cellSize, y - 2 * cellSize, 5 * cellSize, 5 * cellSize);
+    ccLabels.push({ label: getCcPlayerLabel(localId), cx: x, cy: y });
   }
 
-  // Resource pools: golden yellow 3x3
+  // Resource pools: golden yellow 3x3 cells, matching EXE overlay
   for (const [row, col] of snapshot.resource_positions) {
     const x = col * cellSize;
     const y = row * cellSize;
-    if (cellSize === 1) {
-      context.fillStyle = "rgba(255,220,50,0.86)";
-      context.fillRect(x, y, 1, 1);
-    } else {
-      context.fillStyle = "rgba(255,220,50,0.86)";
-      context.fillRect(x - 1, y - 1, 3, 3);
-    }
+    context.fillStyle = "rgba(255,220,50,0.86)";
+    context.fillRect(x - 1 * cellSize, y - 1 * cellSize, 3 * cellSize, 3 * cellSize);
   }
 
   // Draw CC player labels on top
-  if (ccLabels.length > 0 && cellSize > 1) {
-    const fontSize = Math.max(8, Math.floor(cellSize * 0.15));
+  if (ccLabels.length > 0) {
+    const fontSize = Math.max(8, Math.floor(cellSize * 3));
     context.font = `bold ${fontSize}px Arial, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
