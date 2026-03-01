@@ -193,8 +193,8 @@ export function MapCanvas({
   };
 
   const widthExpr = dimensions
-    ? `min(100%, calc((100vh - 10rem) * ${dimensions.cols} / ${dimensions.rows}))`
-    : "min(100%, calc(100vh - 10rem))";
+    ? `min(100%, calc((100vh - 14rem) * ${dimensions.cols} / ${dimensions.rows}))`
+    : "min(100%, calc(100vh - 14rem))";
 
   return (
     <div

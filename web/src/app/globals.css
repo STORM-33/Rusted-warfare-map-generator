@@ -296,14 +296,16 @@ button:disabled {
 
 .map-canvas {
   position: relative;
+  border-radius: 0.35rem;
+  border: 1px solid #334155;
+  overflow: hidden;
 }
 
 .map-layer {
+  display: block;
   width: 100%;
   height: auto;
   image-rendering: pixelated;
-  border-radius: 0.35rem;
-  border: 1px solid #334155;
 }
 
 .map-layer.overlay {
