@@ -387,8 +387,8 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
       const zip = new JSZip();
       zip.file(`${baseName}.tmx`, response.tmxBytes);
 
-      const baseCanvas = document.getElementById("map-canvas-base") as HTMLCanvasElement;
-      const overlayCanvas = document.getElementById("map-canvas-overlay") as HTMLCanvasElement;
+      const baseCanvas = document.getElementById("wizard-map-canvas-base") as HTMLCanvasElement;
+      const overlayCanvas = document.getElementById("wizard-map-canvas-overlay") as HTMLCanvasElement;
 
       if (baseCanvas && overlayCanvas) {
         const thumbCanvas = document.createElement("canvas");
@@ -637,6 +637,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
             requestedMode="auto"
             interactionMode={interactionMode}
             drawValue={drawValue}
+            canvasIdPrefix="wizard-map-canvas"
             onDraw={handleDrawWalls}
             onClickCell={handleCanvasClick}
           />

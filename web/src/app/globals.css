@@ -13,8 +13,45 @@ body {
 
 .mode-toggle {
   display: flex;
+  align-items: center;
   gap: 0;
   padding: 0.5rem 1rem 0;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.45rem;
+  border: 1px solid #334155;
+  background: #111827;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.nav-btn:hover {
+  color: #e2e8f0;
+  background: #1e293b;
+}
+
+.github-btn:hover {
+  border-color: #e2e8f0;
+}
+
+.kofi-btn:hover {
+  color: #ff5e5b;
+  border-color: #ff5e5b;
 }
 
 .mode-btn {

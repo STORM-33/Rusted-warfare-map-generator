@@ -285,10 +285,10 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
 
         // Thumbnail from canvas
         const baseCanvas = document.getElementById(
-            "map-canvas-base",
+            "quick-map-canvas-base",
         ) as HTMLCanvasElement;
         const overlayCanvas = document.getElementById(
-            "map-canvas-overlay",
+            "quick-map-canvas-overlay",
         ) as HTMLCanvasElement;
         if (baseCanvas && overlayCanvas) {
             const thumbCanvas = document.createElement("canvas");
@@ -504,6 +504,7 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
                         requestedMode="auto"
                         interactionMode="none"
                         drawValue={1}
+                        canvasIdPrefix="quick-map-canvas"
                         onDraw={() => { }}
                         onClickCell={() => { }}
                     />

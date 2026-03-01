@@ -15,6 +15,7 @@ type MapCanvasProps = {
   requestedMode: RenderPreference;
   interactionMode: InteractionMode;
   drawValue: 1 | 2;
+  canvasIdPrefix?: string;
   onDraw?: (points: [number, number][], value: 0 | 1 | 2) => void;
   onClickCell?: (row: number, col: number, isRightClick: boolean) => void;
   onRenderModeChange?: (mode: RenderMode) => void;
@@ -42,6 +43,7 @@ export function MapCanvas({
   requestedMode,
   interactionMode,
   drawValue,
+  canvasIdPrefix = "map-canvas",
   onDraw,
   onClickCell,
   onRenderModeChange,
@@ -203,8 +205,8 @@ export function MapCanvas({
       onPointerUp={stopDrawing}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <canvas id="map-canvas-base" ref={baseCanvasRef} className="map-layer" />
-      <canvas id="map-canvas-overlay" ref={overlayCanvasRef} className="map-layer overlay" />
+      <canvas id={`${canvasIdPrefix}-base`} ref={baseCanvasRef} className="map-layer" />
+      <canvas id={`${canvasIdPrefix}-overlay`} ref={overlayCanvasRef} className="map-layer overlay" />
     </div>
   );
 }
