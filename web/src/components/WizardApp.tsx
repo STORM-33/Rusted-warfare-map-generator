@@ -334,11 +334,13 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
   const handleCanvasClick = useCallback(
     (row: number, col: number, isRightClick?: boolean) => {
       if (currentStep === 3 && ccManual) {
-        const actionName = isRightClick ? "remove_cc_manual" : "place_cc_manual";
+        const hasExisting = snapshot?.cc_positions.some(([r, c]) => r === row && c === col);
+        const shouldRemove = isRightClick || hasExisting;
+        const actionName = shouldRemove ? "remove_cc_manual" : "place_cc_manual";
         void callAction(actionName, { row, col, mirrored: ccMirrored })
           .then((response) => {
             const newCount = response.snapshot?.cc_positions.length ?? 0;
-            if (isRightClick) {
+            if (shouldRemove) {
               setStatusText("CC removed.");
             } else if (newCount > 0) {
               markStepComplete(3);
@@ -353,11 +355,13 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
             );
           });
       } else if (currentStep === 4 && resourceManual) {
-        const actionName = isRightClick ? "remove_resource_manual" : "place_resource_manual";
+        const hasExisting = snapshot?.resource_positions.some(([r, c]) => r === row && c === col);
+        const shouldRemove = isRightClick || hasExisting;
+        const actionName = shouldRemove ? "remove_resource_manual" : "place_resource_manual";
         void callAction(actionName, { row, col, mirrored: resourceMirrored })
           .then((response) => {
             const newCount = response.snapshot?.resource_positions.length ?? 0;
-            if (isRightClick) {
+            if (shouldRemove) {
               setStatusText("Resource removed.");
             } else if (newCount > 0) {
               markStepComplete(4);
@@ -373,7 +377,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
           });
       }
     },
-    [callAction, ccManual, currentStep, markStepComplete, resourceManual, ccMirrored, resourceMirrored],
+    [callAction, ccManual, currentStep, markStepComplete, resourceManual, ccMirrored, resourceMirrored, snapshot?.cc_positions, snapshot?.resource_positions],
   );
 
   const handleFinalize = useCallback(async () => {
