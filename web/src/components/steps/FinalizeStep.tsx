@@ -12,9 +12,9 @@ export function FinalizeStep({
   return (
     <section className="panel-section">
       <h2>6. Finalize</h2>
-      <p>Generate final terrain tiles and download generated_map.tmx.</p>
+      <p>Generate final terrain tiles and download a zip with the map (.tmx) and thumbnail (.png).</p>
       <button type="button" className="primary-btn" onClick={onExport} disabled={disabled}>
-        Finalize & Download TMX
+        Finalize & Download ZIP
       </button>
     </section>
   );
