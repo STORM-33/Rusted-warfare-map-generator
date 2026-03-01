@@ -117,6 +117,23 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
 
   const animating = animationFrames.length > 0 && animationIndex >= 0;
 
+  // Re-apply mirroring to the grid when the mirror mode changes
+  useEffect(() => {
+    if (mirroring === "none") return;
+    setGrid((prev) => {
+      const size = prev.length;
+      const next = prev.map((row) => [...row]);
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          for (const [mr, mc] of getMirroredCells(r, c, size, mirroring)) {
+            next[mr][mc] = next[r][c];
+          }
+        }
+      }
+      return next;
+    });
+  }, [mirroring]);
+
   const blueprintCacheRef = useRef<Record<number, string>>({});
 
   useEffect(() => {
