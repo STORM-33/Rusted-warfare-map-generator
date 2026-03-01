@@ -316,6 +316,7 @@ button:disabled {
 
 .map-canvas.draw {
   cursor: crosshair;
+  touch-action: none;
 }
 
 .map-canvas.click {
@@ -356,5 +357,33 @@ button:disabled {
 
   .wizard-main {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .mode-toggle {
+    flex-wrap: wrap;
+    padding: 0.35rem 0.5rem 0;
+  }
+
+  .mode-btn {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+  }
+
+  .nav-links {
+    gap: 0.35rem;
+  }
+
+  .nav-btn {
+    padding: 0.3rem 0.5rem;
+  }
+
+  .nav-btn-label {
+    display: none;
+  }
+
+  .wizard-header h1 {
+    font-size: 1rem;
   }
 }

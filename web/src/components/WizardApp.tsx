@@ -102,6 +102,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
   const [numPlayers, setNumPlayers] = useState(4);
   const [numResources, setNumResources] = useState(12);
   const [drawValue, setDrawValue] = useState<1 | 2>(1);
+  const [eraseMode, setEraseMode] = useState(false);
   const [brushSize, setBrushSize] = useState(3);
   const [ccManual, setCcManual] = useState(true);
   const [ccMirrored, setCcMirrored] = useState(true);
@@ -525,9 +526,11 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
       return (
         <HillDrawingStep
           drawValue={drawValue}
+          eraseMode={eraseMode}
           brushSize={brushSize}
           disabled={busy || !ready}
-          onDrawValueChange={setDrawValue}
+          onDrawValueChange={(v) => { setDrawValue(v); setEraseMode(false); }}
+          onEraseModeChange={setEraseMode}
           onBrushSizeChange={setBrushSize}
           onClear={() => void runAction("Clearing walls", "clear_walls")}
         />
@@ -654,6 +657,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
             requestedMode="auto"
             interactionMode={interactionMode}
             drawValue={drawValue}
+            eraseMode={eraseMode}
             canvasIdPrefix="wizard-map-canvas"
             onDraw={handleDrawWalls}
             onClickCell={handleCanvasClick}

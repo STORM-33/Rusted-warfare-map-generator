@@ -15,6 +15,7 @@ type MapCanvasProps = {
   requestedMode: RenderPreference;
   interactionMode: InteractionMode;
   drawValue: 1 | 2;
+  eraseMode?: boolean;
   canvasIdPrefix?: string;
   onDraw?: (points: [number, number][], value: 0 | 1 | 2) => void;
   onClickCell?: (row: number, col: number, isRightClick: boolean) => void;
@@ -43,6 +44,7 @@ export function MapCanvas({
   requestedMode,
   interactionMode,
   drawValue,
+  eraseMode = false,
   canvasIdPrefix = "map-canvas",
   onDraw,
   onClickCell,
@@ -148,7 +150,7 @@ export function MapCanvas({
     event.preventDefault();
     (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
     drawingRef.current = true;
-    const value: 0 | 1 | 2 = event.button === 2 ? 0 : drawValue;
+    const value: 0 | 1 | 2 = event.button === 2 || eraseMode ? 0 : drawValue;
     onDraw?.([[cell.row, cell.col]], value);
     lastCellRef.current = `${cell.row}:${cell.col}:${value}`;
   };
@@ -161,7 +163,7 @@ export function MapCanvas({
     if (!cell) {
       return;
     }
-    const value: 0 | 1 | 2 = event.buttons & 2 ? 0 : drawValue;
+    const value: 0 | 1 | 2 = event.buttons & 2 || eraseMode ? 0 : drawValue;
     const marker = `${cell.row}:${cell.col}:${value}`;
     if (marker === lastCellRef.current) {
       return;
