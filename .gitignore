@@ -1,5 +1,13 @@
-generated_map.tmx
+# IDE
+.idea/
 
+# Build artifacts
 dist/
 build/
 __pycache__/
+
+# Generated
+generated_map.tmx
+
+# Project-specific
+CLAUDE.md
