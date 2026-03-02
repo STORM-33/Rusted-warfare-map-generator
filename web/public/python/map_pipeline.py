@@ -448,18 +448,20 @@ def run_remove_cc_manual(state: WizardState, row, col):
         if (r2, c2) in state.cc_positions:
             state.cc_positions.remove((r2, c2))
 
-    # If it was a mirrored CC being removed, we shift the IDs down to fill the gap.
-    # Otherwise, we leave the IDs alone (sequential sparse pinning).
-    if is_mirrored:
-        used_by_unmirrored = set()
+    # If a mirrored pair (2+ positions) was removed, compact the paired-slot IDs
+    # so there are no gaps in the pair numbering. Single-position groups keep
+    # their IDs unchanged so player labels stay stable after removal.
+    removed_positions = positions if isinstance(positions, list) else list(positions)
+    if len(removed_positions) > 1:
+        used_by_single = set()
         for g in state.cc_groups:
-            if isinstance(g, dict) and not g.get("mirrored", True):
-                used_by_unmirrored.add(g["id"])
-                
+            if isinstance(g, dict) and len(g["positions"]) == 1:
+                used_by_single.add(g["id"])
+
         candidate = 101
         for group in state.cc_groups:
-            if isinstance(group, dict) and group.get("mirrored", True):
-                while candidate in used_by_unmirrored or (candidate + 5) in used_by_unmirrored:
+            if isinstance(group, dict) and len(group["positions"]) > 1:
+                while candidate in used_by_single or (candidate + 5) in used_by_single:
                     candidate += 1
                 group["id"] = candidate
                 candidate += 1
