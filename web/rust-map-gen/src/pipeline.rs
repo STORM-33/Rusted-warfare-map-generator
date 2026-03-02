@@ -11,7 +11,9 @@ use crate::algorithms::placement::{
     has_non_zero_in_radius, has_positive_in_radius, place_resource_pull, rebuild_cc_matrix,
 };
 use crate::algorithms::smoothing::{smooth_terrain_tiles, smooth_wall_tiles};
-use crate::algorithms::terrain::{bias_terrain_near_walls, generate_level};
+use crate::algorithms::terrain::{
+    bias_terrain_near_walls, enforce_transition_safety, generate_level, wall_protection_mask,
+};
 use crate::algorithms::tmx::write_tmx as write_tmx_impl;
 use crate::state::{CcGroup, Matrix, MatrixPayload, WizardState, WizardStep};
 use crate::tiles::{
@@ -164,6 +166,7 @@ pub fn run_height_ocean(state: &mut WizardState, seed: Option<i32>) -> Result<()
     if let Some(wall_matrix) = &state.wall_matrix {
         if wall_matrix.data.iter().any(|v| *v == 1) {
             height_map = bias_terrain_near_walls(&height_map, wall_matrix, state.num_height_levels);
+            enforce_transition_safety(&mut height_map, state.num_height_levels);
         }
     }
 
@@ -637,8 +640,15 @@ pub fn run_finalize(
         .clone()
         .unwrap_or_else(|| Matrix::zeros(h, w));
 
+    let protection_mask = state
+        .wall_matrix
+        .as_ref()
+        .filter(|wm| wm.data.iter().any(|v| *v == 1))
+        .map(|wm| wall_protection_mask(wm, 3));
+    let protected = protection_mask.as_deref();
+
     for (level, tile_set) in TERRAIN_LEVELS.iter().rev() {
-        smooth_terrain_tiles(&mut height_map, &mut id_matrix, *level, tile_set);
+        smooth_terrain_tiles(&mut height_map, &mut id_matrix, *level, tile_set, protected);
         if collect_frames {
             frames.push(make_quick_frame(
                 format!("terrain_smooth_{level}"),

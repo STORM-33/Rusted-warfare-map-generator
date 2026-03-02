@@ -11,14 +11,28 @@ pub(crate) fn smooth_wall_tiles(wall_matrix: &Matrix) -> Matrix {
     let mut result = Matrix::zeros(h, w);
     let rock_first_gid = TILE_ID_OFFSET + 135;
 
-    for r in 0..h {
-        for c in 0..w {
-            if cleaned.get(r, c) != 1 {
-                continue;
-            }
-            let pattern = wall_cardinal_passable_pattern(&cleaned, r, c, true);
-            if is_wall_isolated_pattern(pattern) {
-                cleaned.set(r, c, 0);
+    // Iterative cleanup: remove wall tiles with unmappable patterns until stable
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for r in 0..h {
+            for c in 0..w {
+                if cleaned.get(r, c) != 1 {
+                    continue;
+                }
+                let pattern = wall_cardinal_passable_pattern(&cleaned, r, c, true);
+                if is_wall_isolated_pattern(pattern) {
+                    cleaned.set(r, c, 0);
+                    changed = true;
+                    continue;
+                }
+                // Also remove tiles that have no valid cardinal mapping
+                // (using oob_default=false for tile assignment context)
+                let assign_pattern = wall_cardinal_passable_pattern(&cleaned, r, c, false);
+                if wall_cardinal_map(assign_pattern).is_none() {
+                    cleaned.set(r, c, 0);
+                    changed = true;
+                }
             }
         }
     }
@@ -29,35 +43,59 @@ pub(crate) fn smooth_wall_tiles(wall_matrix: &Matrix) -> Matrix {
                 continue;
             }
             let pattern = wall_cardinal_passable_pattern(&cleaned, r, c, false);
-            let local_id = if let Some(idx) = wall_cardinal_map(pattern) {
-                if idx == 0 {
-                    let tl = wall_passable(&cleaned, r as isize - 1, c as isize - 1, false);
-                    let tr = wall_passable(&cleaned, r as isize - 1, c as isize + 1, false);
-                    let bl = wall_passable(&cleaned, r as isize + 1, c as isize - 1, false);
-                    let br = wall_passable(&cleaned, r as isize + 1, c as isize + 1, false);
-                    if tl == 1 && tr == 0 && bl == 0 && br == 0 {
-                        LARGE_ROCK_TILE_SET[10]
-                    } else if tr == 1 && tl == 0 && bl == 0 && br == 0 {
-                        LARGE_ROCK_TILE_SET[11]
-                    } else if bl == 1 && tl == 0 && tr == 0 && br == 0 {
-                        LARGE_ROCK_TILE_SET[12]
-                    } else if br == 1 && tl == 0 && tr == 0 && bl == 0 {
-                        LARGE_ROCK_TILE_SET[13]
-                    } else {
-                        continue;
-                    }
-                } else {
-                    LARGE_ROCK_TILE_SET[idx as usize + 1]
-                }
-            } else {
-                LARGE_ROCK_TILE_SET[1]
+            let Some(idx) = wall_cardinal_map(pattern) else {
+                continue;
             };
-            if local_id >= 0 {
-                result.set(r, c, rock_first_gid + local_id);
+            let local_id = if idx == 0 {
+                wall_corner_tile(&cleaned, r, c)
+            } else {
+                Some(LARGE_ROCK_TILE_SET[idx as usize + 1])
+            };
+            if let Some(id) = local_id {
+                if id >= 0 {
+                    result.set(r, c, rock_first_gid + id);
+                }
             }
         }
     }
     result
+}
+
+fn wall_corner_tile(matrix: &Matrix, r: usize, c: usize) -> Option<i32> {
+    let tl = wall_passable(matrix, r as isize - 1, c as isize - 1, false);
+    let tr = wall_passable(matrix, r as isize - 1, c as isize + 1, false);
+    let bl = wall_passable(matrix, r as isize + 1, c as isize - 1, false);
+    let br = wall_passable(matrix, r as isize + 1, c as isize + 1, false);
+    let passable_count = tl + tr + bl + br;
+
+    if passable_count == 0 {
+        // Fully surrounded — center tile
+        return Some(LARGE_ROCK_TILE_SET[1]);
+    }
+
+    // Single corner — use the specific corner tile
+    if passable_count == 1 {
+        if tl == 1 {
+            return Some(LARGE_ROCK_TILE_SET[10]);
+        } else if tr == 1 {
+            return Some(LARGE_ROCK_TILE_SET[11]);
+        } else if bl == 1 {
+            return Some(LARGE_ROCK_TILE_SET[12]);
+        } else {
+            return Some(LARGE_ROCK_TILE_SET[13]);
+        }
+    }
+
+    // Multiple corners passable — pick the first one (best effort)
+    if tl == 1 {
+        Some(LARGE_ROCK_TILE_SET[10])
+    } else if tr == 1 {
+        Some(LARGE_ROCK_TILE_SET[11])
+    } else if bl == 1 {
+        Some(LARGE_ROCK_TILE_SET[12])
+    } else {
+        Some(LARGE_ROCK_TILE_SET[13])
+    }
 }
 
 
@@ -67,13 +105,17 @@ pub(crate) fn smooth_terrain_tiles(
     id_matrix: &mut Matrix,
     height_level: i32,
     tile_set: &[i32; 14],
+    protected: Option<&[bool]>,
 ) {
-    remove_isolated_tiles(map_matrix, height_level, 3);
+    remove_isolated_tiles(map_matrix, height_level, 3, protected);
     let rows = map_matrix.rows;
     let cols = map_matrix.cols;
     for r in 0..rows {
         for c in 0..cols {
             if map_matrix.get(r, c) != height_level {
+                continue;
+            }
+            if protected.is_some_and(|p| p[r * cols + c]) {
                 continue;
             }
             let neighbors = get_all_neighbors(map_matrix, r, c);
@@ -82,7 +124,7 @@ pub(crate) fn smooth_terrain_tiles(
             }
         }
     }
-    remove_isolated_tiles(map_matrix, height_level, 5);
+    remove_isolated_tiles(map_matrix, height_level, 5, protected);
 
     for r in 0..rows {
         for c in 0..cols {
@@ -132,11 +174,20 @@ pub(crate) fn smooth_terrain_tiles(
 
 
 
-fn remove_isolated_tiles(map_matrix: &mut Matrix, height_level: i32, passes: usize) {
+fn remove_isolated_tiles(
+    map_matrix: &mut Matrix,
+    height_level: i32,
+    passes: usize,
+    protected: Option<&[bool]>,
+) {
+    let cols = map_matrix.cols;
     for _ in 0..passes {
         for r in 0..map_matrix.rows {
             for c in 0..map_matrix.cols {
                 if map_matrix.get(r, c) != height_level {
+                    continue;
+                }
+                if protected.is_some_and(|p| p[r * cols + c]) {
                     continue;
                 }
                 let pattern = get_neighbors(map_matrix, r, c);
