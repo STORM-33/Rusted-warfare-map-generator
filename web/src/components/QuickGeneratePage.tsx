@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UsePyodideResult } from "@/hooks/usePyodide";
+import type { UseMapEngineResult } from "@/hooks/useMapEngine";
 import type {
     QuickGenerateFrame,
     WorkerStepCompleteMessage,
@@ -65,13 +65,13 @@ const getMirroredCells = (
     });
 };
 
-export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
+export function QuickGeneratePage({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     const {
         ready,
         error,
         snapshot,
         callAction,
-    } = pyodide;
+    } = mapEngine;
 
     const [grid, setGrid] = useState<number[][]>(DEFAULT_GRID);
     const [height, setHeight] = useState(160);

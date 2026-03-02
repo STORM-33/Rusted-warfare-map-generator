@@ -8,7 +8,7 @@ type LoadingScreenProps = {
 export function LoadingScreen({ stage, progress }: LoadingScreenProps) {
   return (
     <div className="loading-screen">
-      <h1>Loading Python runtime...</h1>
+      <h1>Loading map engine...</h1>
       <p>{stage}</p>
       <div className="progress-track">
         <div className="progress-fill" style={{ width: `${progress}%` }} />

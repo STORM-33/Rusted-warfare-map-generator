@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UsePyodideResult } from "@/hooks/usePyodide";
+import type { UseMapEngineResult } from "@/hooks/useMapEngine";
 import { useWizardState } from "@/hooks/useWizardState";
 import type { CoastlineFrame, WorkerAction, WorkerStepCompleteMessage, WizardSnapshot } from "@/lib/types";
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
@@ -73,13 +73,13 @@ const getMirroredCells = (
   });
 };
 
-export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
+export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
   const {
     ready,
     error,
     snapshot,
     callAction,
-  } = pyodide;
+  } = mapEngine;
   const {
     steps,
     currentStep,
@@ -498,7 +498,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
       setAnimationIndex(-1);
       resetWizard();
       setStatusText("App state reset for a new map.");
-    } catch (e) {
+    } catch {
       setStatusText("Failed to reset state.");
     } finally {
       setBusy(false);

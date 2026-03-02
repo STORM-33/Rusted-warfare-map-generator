@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Rusted Warfare Map Generator",
-  description: "Static web wizard powered by Next.js + Pyodide",
+  description: "Static web wizard powered by Next.js + Rust WASM",
 };
 
 export default function RootLayout({

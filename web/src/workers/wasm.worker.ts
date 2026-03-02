@@ -14,38 +14,22 @@ import type {
   WorkerResponseMessage,
 } from "@/lib/types";
 
-type PyProxyLike = {
-  toJs: (options?: unknown) => unknown;
-  destroy?: () => void;
+type WasmModuleExports = {
+  default: (moduleOrPath?: string) => Promise<unknown>;
+  rpc_call: (method: string, paramsJson: string) => unknown;
 };
 
-type PyodideLike = {
-  loadPackage: (packages: string | string[]) => Promise<void>;
-  pyimport: (name: string) => PyProxyLike & Record<string, unknown>;
-  runPython: (code: string) => unknown;
-  FS: {
-    writeFile: (path: string, data: string) => void;
-  };
-};
+const ctx = self as DedicatedWorkerGlobalScope;
 
-type WorkerGlobal = DedicatedWorkerGlobalScope & {
-  loadPyodide?: (options: { indexURL: string }) => Promise<PyodideLike>;
-};
-
-const PYODIDE_INDEX_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
-const PYTHON_FILES = [
-  "procedural_map_generator_functions.py",
-  "wizard_state.py",
-  "map_pipeline.py",
-  "bridge.py",
-];
-
-const ctx = self as WorkerGlobal;
-
-let pyodide: PyodideLike | null = null;
-let bridgeModule: (PyProxyLike & Record<string, unknown>) | null = null;
+let rpcCall: ((method: string, paramsJson: string) => unknown) | null = null;
 let initPromise: Promise<void> | null = null;
-let baseUrl = "";
+let baseUrl = ctx.location.origin;
+
+const dynamicImport = (moduleUrl: string) =>
+  // Keep this runtime-dynamic so bundlers do not try to resolve local build-time files.
+  (new Function("moduleUrl", "return import(moduleUrl);") as (
+    url: string,
+  ) => Promise<unknown>)(moduleUrl);
 
 const post = (message: WorkerResponseMessage, transfer: Transferable[] = []) => {
   ctx.postMessage(message, transfer);
@@ -53,18 +37,6 @@ const post = (message: WorkerResponseMessage, transfer: Transferable[] = []) => 
 
 const postLoading = (stage: string, progress: number) => {
   post({ type: "loading", stage, progress });
-};
-
-const toPlainObject = (value: unknown): unknown => {
-  if (value && typeof value === "object" && "toJs" in value) {
-    const proxy = value as PyProxyLike;
-    try {
-      return proxy.toJs({ dict_converter: Object.fromEntries });
-    } finally {
-      proxy.destroy?.();
-    }
-  }
-  return value;
 };
 
 const normalizeMatrix = (
@@ -108,59 +80,46 @@ const normalizeSnapshot = (
   };
 };
 
-const fetchPython = async (fileName: string) => {
-  const response = await fetch(`${baseUrl}/python/${fileName}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${fileName}: ${response.status}`);
-  }
-  return response.text();
-};
-
 const initializeRuntime = async () => {
-  postLoading("pyodide", 5);
-  ctx.importScripts(`${PYODIDE_INDEX_URL}pyodide.js`);
-  if (!ctx.loadPyodide) {
-    throw new Error("Pyodide loader was not found on worker global scope");
-  }
-  pyodide = await ctx.loadPyodide({ indexURL: PYODIDE_INDEX_URL });
-
-  postLoading("numpy", 20);
-  await pyodide.loadPackage("numpy");
-
-  postLoading("scipy", 35);
-  await pyodide.loadPackage("scipy");
-
-  postLoading("perlin-noise", 50);
-  await pyodide.loadPackage("micropip");
-  const micropip = pyodide.pyimport("micropip");
+  postLoading("wasm", 20);
+  const wasmJsUrl = `${baseUrl}/wasm-pkg/rust_map_gen.js`;
+  const wasmBinaryUrl = `${baseUrl}/wasm-pkg/rust_map_gen_bg.wasm`;
+  let wasmModule: WasmModuleExports;
   try {
-    const install = (micropip as Record<string, unknown>).install;
-    if (typeof install !== "function") {
-      throw new Error("micropip.install is unavailable");
-    }
-    await (install as (spec: string) => Promise<void>)("perlin-noise");
-  } finally {
-    micropip.destroy?.();
+    wasmModule = (await dynamicImport(wasmJsUrl)) as WasmModuleExports;
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown dynamic import error";
+    throw new Error(
+      `Failed to load WASM JS module from ${wasmJsUrl}. ` +
+      `Base URL is ${baseUrl}. Make sure the app port is correct and run "npm run build:wasm". ` +
+      `Details: ${detail}`,
+    );
   }
-
-  postLoading("python-files", 65);
-  for (let i = 0; i < PYTHON_FILES.length; i += 1) {
-    const fileName = PYTHON_FILES[i];
-    const source = await fetchPython(fileName);
-    pyodide.FS.writeFile(fileName, source);
-    const fileProgress = 65 + Math.round(((i + 1) / PYTHON_FILES.length) * 25);
-    postLoading(`python:${fileName}`, fileProgress);
+  if (typeof wasmModule.default !== "function") {
+    throw new Error("WASM init() export is unavailable");
   }
-
-  pyodide.runPython(
-    "import sys\nif '' not in sys.path:\n    sys.path.append('')\n",
-  );
-  bridgeModule = pyodide.pyimport("bridge");
+  if (typeof wasmModule.rpc_call !== "function") {
+    throw new Error("WASM rpc_call export is unavailable");
+  }
+  postLoading("wasm:init", 60);
+  try {
+    await wasmModule.default(wasmBinaryUrl);
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown WASM init error";
+    throw new Error(
+      `Failed to initialize WASM binary from ${wasmBinaryUrl}. ` +
+      `Base URL is ${baseUrl}. Run "npm run build:wasm" and retry. ` +
+      `Details: ${detail}`,
+    );
+  }
+  rpcCall = wasmModule.rpc_call;
   postLoading("ready", 100);
 };
 
 const ensureInitialized = async () => {
-  if (bridgeModule) {
+  if (rpcCall) {
     return;
   }
   if (!initPromise) {
@@ -174,17 +133,10 @@ const invokeRpc = async (
   params: Record<string, unknown> | undefined,
 ) => {
   await ensureInitialized();
-  if (!bridgeModule) {
-    throw new Error("Python bridge is unavailable");
-  }
-  const rpcCall = bridgeModule.rpc_call as
-    | ((method: string, paramsJson: string) => unknown)
-    | undefined;
   if (!rpcCall) {
-    throw new Error("bridge.rpc_call not found");
+    throw new Error("WASM bridge is unavailable");
   }
-
-  const rawResult = toPlainObject(rpcCall(action, JSON.stringify(params ?? {})));
+  const rawResult = rpcCall(action, JSON.stringify(params ?? {}));
   const transferables: Transferable[] = [];
   const resultObject =
     rawResult && typeof rawResult === "object"
@@ -215,11 +167,14 @@ const invokeRpc = async (
       const typed =
         f.data instanceof Int32Array ? f.data : Int32Array.from(f.data);
       transferables.push(typed.buffer);
-      return { label: f.label, shape: [f.shape[0], f.shape[1]] as [number, number], data: typed };
+      return {
+        label: f.label,
+        shape: [f.shape[0], f.shape[1]] as [number, number],
+        data: typed,
+      };
     });
   }
 
-  // Normalize quick_generate frames (each frame has multiple matrix payloads)
   let quickFrames: QuickGenerateFrame[] | undefined;
   const rawQuickFrames = resultObject.quick_frames;
   if (Array.isArray(rawQuickFrames) && rawQuickFrames.length > 0) {
@@ -239,21 +194,31 @@ const invokeRpc = async (
     });
   }
 
-  return { snapshot, tmxBytes, frames, quickFrames, transferables };
+  let placed: [number, number][] | undefined;
+  const rawPlaced = resultObject.placed;
+  if (Array.isArray(rawPlaced)) {
+    placed = rawPlaced
+      .filter((pair): pair is [unknown, unknown] => Array.isArray(pair) && pair.length === 2)
+      .map((pair): [number, number] => [Number(pair[0]), Number(pair[1])]);
+  }
+  const removed =
+    typeof resultObject.removed === "boolean" ? resultObject.removed : undefined;
+
+  return { snapshot, tmxBytes, frames, quickFrames, placed, removed, transferables };
 };
 
 ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
   const { type, requestId, params } = event.data;
   try {
     if (type === "init") {
-      if (params?.baseUrl) {
-        baseUrl = params.baseUrl as string;
+      if (typeof params?.baseUrl === "string" && params.baseUrl.length > 0) {
+        baseUrl = params.baseUrl;
       }
       await ensureInitialized();
       post({ type: "init_complete", requestId });
       return;
     }
-    const { snapshot, tmxBytes, frames, quickFrames, transferables } = await invokeRpc(type, params);
+    const { snapshot, tmxBytes, frames, quickFrames, placed, removed, transferables } = await invokeRpc(type, params);
     post(
       {
         type: "step_complete",
@@ -263,6 +228,8 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequestMessage>) => {
         tmxBytes,
         frames,
         quickFrames,
+        placed,
+        removed,
       },
       transferables,
     );

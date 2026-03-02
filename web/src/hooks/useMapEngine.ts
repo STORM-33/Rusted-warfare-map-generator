@@ -16,7 +16,7 @@ type PendingRequest = {
 
 export type WorkerActionParams = Record<string, unknown>;
 
-export interface UsePyodideResult {
+export interface UseMapEngineResult {
   loading: boolean;
   ready: boolean;
   error: string | null;
@@ -29,7 +29,7 @@ export interface UsePyodideResult {
   ) => Promise<WorkerStepCompleteMessage>;
 }
 
-export function usePyodide(): UsePyodideResult {
+export function useMapEngine(): UseMapEngineResult {
   const workerRef = useRef<Worker | null>(null);
   const requestCounterRef = useRef(0);
   const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
@@ -46,7 +46,7 @@ export function usePyodide(): UsePyodideResult {
     (type: WorkerAction, params?: WorkerActionParams) => {
       const worker = workerRef.current;
       if (!worker) {
-        return Promise.reject(new Error("Pyodide worker is not initialized"));
+        return Promise.reject(new Error("Map engine worker is not initialized"));
       }
       const requestId = `${Date.now()}-${requestCounterRef.current++}`;
       const message: WorkerRequestMessage = { type, requestId, params };
@@ -60,7 +60,7 @@ export function usePyodide(): UsePyodideResult {
 
   useEffect(() => {
     const worker = new Worker(
-      new URL("../workers/pyodide.worker.ts", import.meta.url),
+      new URL("../workers/wasm.worker.ts", import.meta.url),
     );
     workerRef.current = worker;
 

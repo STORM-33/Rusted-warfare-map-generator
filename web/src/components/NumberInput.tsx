@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 type NumberInputProps = {
   value: number;
@@ -21,12 +21,7 @@ export function NumberInput({
 }: NumberInputProps) {
   const [draft, setDraft] = useState(String(value));
   const [error, setError] = useState("");
-
-  // Sync draft when value changes externally (e.g. from parent state)
-  useEffect(() => {
-    setDraft(String(value));
-    setError("");
-  }, [value]);
+  const [isFocused, setIsFocused] = useState(false);
 
   const validate = useCallback(
     (text: string): { valid: boolean; num: number; message: string } => {
@@ -51,6 +46,9 @@ export function NumberInput({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const text = e.target.value;
+    if (!isFocused) {
+      setIsFocused(true);
+    }
     setDraft(text);
 
     const result = validate(text);
@@ -60,6 +58,12 @@ export function NumberInput({
     } else {
       setError(result.message);
     }
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
+    setDraft(String(value));
+    setError("");
   };
 
   const handleBlur = () => {
@@ -72,6 +76,7 @@ export function NumberInput({
       setDraft(String(value));
       setError("");
     }
+    setIsFocused(false);
   };
 
   return (
@@ -81,7 +86,8 @@ export function NumberInput({
         min={min}
         max={max}
         step={step}
-        value={draft}
+        value={isFocused ? draft : String(value)}
+        onFocus={handleFocus}
         onChange={handleChange}
         onBlur={handleBlur}
         disabled={disabled}

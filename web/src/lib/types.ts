@@ -115,6 +115,8 @@ export interface WorkerStepCompleteMessage {
   tmxBytes?: Uint8Array;
   frames?: CoastlineFrame[];
   quickFrames?: QuickGenerateFrame[];
+  placed?: [number, number][];
+  removed?: boolean;
 }
 
 export interface WorkerErrorMessage {

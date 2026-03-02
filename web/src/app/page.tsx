@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { usePyodide } from "@/hooks/usePyodide";
+import { useMapEngine } from "@/hooks/useMapEngine";
 import { WizardApp } from "@/components/WizardApp";
 import { QuickGeneratePage } from "@/components/QuickGeneratePage";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -10,17 +10,17 @@ type AppMode = "wizard" | "quick";
 
 export default function Home() {
   const [mode, setMode] = useState<AppMode>("wizard");
-  const wizardPyodide = usePyodide();
-  const quickPyodide = usePyodide();
-  const activePyodide = mode === "wizard" ? wizardPyodide : quickPyodide;
-  const showLoading = activePyodide.loading && !activePyodide.ready;
+  const wizardEngine = useMapEngine();
+  const quickEngine = useMapEngine();
+  const activeEngine = mode === "wizard" ? wizardEngine : quickEngine;
+  const showLoading = activeEngine.loading && !activeEngine.ready;
 
   return (
     <>
       {showLoading ? (
         <LoadingScreen
-          stage={activePyodide.loadingStage}
-          progress={activePyodide.loadingProgress}
+          stage={activeEngine.loadingStage}
+          progress={activeEngine.loadingProgress}
         />
       ) : null}
       <div
@@ -68,10 +68,10 @@ export default function Home() {
           </div>
         </nav>
         <div style={{ display: mode === "wizard" ? "flex" : "none", flex: 1, minHeight: 0 }}>
-          <WizardApp pyodide={wizardPyodide} />
+          <WizardApp mapEngine={wizardEngine} />
         </div>
         <div style={{ display: mode === "quick" ? "flex" : "none", flex: 1, minHeight: 0 }}>
-          <QuickGeneratePage pyodide={quickPyodide} />
+          <QuickGeneratePage mapEngine={quickEngine} />
         </div>
       </div>
     </>
