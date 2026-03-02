@@ -518,10 +518,10 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
           animating={animating}
           animationProgress={animationProgress}
           onToggleCell={handleToggleGridCell}
-          onHeightChange={(value) => setHeight(clampValue(value, 40, 640))}
-          onWidthChange={(value) => setWidth(clampValue(value, 40, 640))}
+          onHeightChange={setHeight}
+          onWidthChange={setWidth}
           onMirroringChange={(value) => setMirroring(value as MirroringMode)}
-          onTilesetChange={(value) => setTileset(clampValue(value, 1, 5))}
+          onTilesetChange={setTileset}
           onGenerate={handleGenerateCoastline}
         />
       );
@@ -546,10 +546,8 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
           heightLevels={heightLevels}
           oceanLevels={oceanLevels}
           disabled={busy || !ready}
-          onHeightLevelsChange={(value) =>
-            setHeightLevels(clampValue(value, 1, 20))
-          }
-          onOceanLevelsChange={(value) => setOceanLevels(clampValue(value, 1, 20))}
+          onHeightLevelsChange={setHeightLevels}
+          onOceanLevelsChange={setOceanLevels}
           onGenerate={() =>
             void runAction("Generating height/ocean", "run_height_ocean", {
               heightLevels,
@@ -566,7 +564,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
           manualMode={ccManual}
           mirrored={ccMirrored}
           disabled={busy || !ready}
-          onNumPlayersChange={(value) => setNumPlayers(clampValue(value, 2, 10))}
+          onNumPlayersChange={setNumPlayers}
           onManualModeChange={setCcManual}
           onMirroredChange={setCcMirrored}
           onRandom={() =>
@@ -599,9 +597,7 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
           manualMode={resourceManual}
           mirrored={resourceMirrored}
           disabled={busy || !ready}
-          onNumResourcesChange={(value) =>
-            setNumResources(clampValue(value, 0, 50))
-          }
+          onNumResourcesChange={setNumResources}
           onManualModeChange={setResourceManual}
           onMirroredChange={setResourceMirrored}
           onRandom={() =>

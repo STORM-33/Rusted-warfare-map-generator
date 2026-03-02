@@ -1,5 +1,7 @@
 "use client";
 
+import { NumberInput } from "@/components/NumberInput";
+
 type HeightOceanStepProps = {
   heightLevels: number;
   oceanLevels: number;
@@ -24,25 +26,11 @@ export function HeightOceanStep({
       <div className="control-grid">
         <label>
           Height Levels
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={heightLevels}
-            onChange={(event) => onHeightLevelsChange(Number(event.target.value))}
-            disabled={disabled}
-          />
+          <NumberInput value={heightLevels} min={1} max={20} onChange={onHeightLevelsChange} disabled={disabled} />
         </label>
         <label>
           Ocean Levels
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={oceanLevels}
-            onChange={(event) => onOceanLevelsChange(Number(event.target.value))}
-            disabled={disabled}
-          />
+          <NumberInput value={oceanLevels} min={1} max={20} onChange={onOceanLevelsChange} disabled={disabled} />
         </label>
       </div>
       <button type="button" className="primary-btn" onClick={onGenerate} disabled={disabled}>

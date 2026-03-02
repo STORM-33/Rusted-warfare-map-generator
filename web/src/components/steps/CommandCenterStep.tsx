@@ -1,5 +1,7 @@
 "use client";
 
+import { NumberInput } from "@/components/NumberInput";
+
 type CommandCenterStepProps = {
   numPlayers: number;
   manualMode: boolean;
@@ -32,14 +34,7 @@ export function CommandCenterStep({
       <div className="control-grid">
         <label>
           Num Players
-          <input
-            type="number"
-            min={2}
-            max={10}
-            value={numPlayers}
-            onChange={(event) => onNumPlayersChange(Number(event.target.value))}
-            disabled={disabled}
-          />
+          <NumberInput value={numPlayers} min={2} max={10} onChange={onNumPlayersChange} disabled={disabled} />
         </label>
         {manualMode && (
           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.5rem" }}>

@@ -1,5 +1,7 @@
 "use client";
 
+import { NumberInput } from "@/components/NumberInput";
+
 type CoastlineStepProps = {
   grid: number[][];
   height: number;
@@ -63,27 +65,11 @@ export function CoastlineStep({
       <div className="control-grid">
         <label>
           Height
-          <input
-            type="number"
-            min={40}
-            max={640}
-            step={20}
-            value={height}
-            onChange={(event) => onHeightChange(Number(event.target.value))}
-            disabled={isDisabled}
-          />
+          <NumberInput value={height} min={40} max={640} step={20} onChange={onHeightChange} disabled={isDisabled} />
         </label>
         <label>
           Width
-          <input
-            type="number"
-            min={40}
-            max={640}
-            step={20}
-            value={width}
-            onChange={(event) => onWidthChange(Number(event.target.value))}
-            disabled={isDisabled}
-          />
+          <NumberInput value={width} min={40} max={640} step={20} onChange={onWidthChange} disabled={isDisabled} />
         </label>
         <label>
           Mirroring

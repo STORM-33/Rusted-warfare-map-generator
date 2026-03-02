@@ -10,6 +10,7 @@ import type {
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
 import { loadTilesetsFromBlueprint } from "@/lib/tilesetExtractor";
 import { MapCanvas } from "@/components/MapCanvas";
+import { NumberInput } from "@/components/NumberInput";
 import JSZip from "jszip";
 
 type MirroringMode =
@@ -378,27 +379,11 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
                         <div className="control-grid">
                             <label>
                                 Height
-                                <input
-                                    type="number"
-                                    min={40}
-                                    max={640}
-                                    step={20}
-                                    value={height}
-                                    onChange={(e) => setHeight(clampValue(Number(e.target.value), 40, 640))}
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={height} min={40} max={640} step={20} onChange={setHeight} disabled={isDisabled} />
                             </label>
                             <label>
                                 Width
-                                <input
-                                    type="number"
-                                    min={40}
-                                    max={640}
-                                    step={20}
-                                    value={width}
-                                    onChange={(e) => setWidth(clampValue(Number(e.target.value), 40, 640))}
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={width} min={40} max={640} step={20} onChange={setWidth} disabled={isDisabled} />
                             </label>
                             <label>
                                 Mirroring
@@ -436,56 +421,19 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
                             </label>
                             <label>
                                 Height Levels
-                                <input
-                                    type="number"
-                                    min={1}
-                                    max={7}
-                                    value={heightLevels}
-                                    onChange={(e) =>
-                                        setHeightLevels(clampValue(Number(e.target.value), 1, 7))
-                                    }
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={heightLevels} min={1} max={7} onChange={setHeightLevels} disabled={isDisabled} />
                             </label>
                             <label>
                                 Ocean Levels
-                                <input
-                                    type="number"
-                                    min={1}
-                                    max={3}
-                                    value={oceanLevels}
-                                    onChange={(e) =>
-                                        setOceanLevels(clampValue(Number(e.target.value), 1, 3))
-                                    }
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={oceanLevels} min={1} max={3} onChange={setOceanLevels} disabled={isDisabled} />
                             </label>
                             <label>
                                 Players
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={10}
-                                    step={2}
-                                    value={numPlayers}
-                                    onChange={(e) =>
-                                        setNumPlayers(clampValue(Number(e.target.value), 0, 10))
-                                    }
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={numPlayers} min={0} max={10} step={2} onChange={setNumPlayers} disabled={isDisabled} />
                             </label>
                             <label>
                                 Resources
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={50}
-                                    value={numResources}
-                                    onChange={(e) =>
-                                        setNumResources(clampValue(Number(e.target.value), 0, 50))
-                                    }
-                                    disabled={isDisabled}
-                                />
+                                <NumberInput value={numResources} min={0} max={50} onChange={setNumResources} disabled={isDisabled} />
                             </label>
                         </div>
 

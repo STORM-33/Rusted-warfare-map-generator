@@ -1,5 +1,7 @@
 "use client";
 
+import { NumberInput } from "@/components/NumberInput";
+
 type ResourceStepProps = {
   numResources: number;
   manualMode: boolean;
@@ -32,14 +34,7 @@ export function ResourceStep({
       <div className="control-grid">
         <label>
           Num Resource Pulls
-          <input
-            type="number"
-            min={0}
-            max={50}
-            value={numResources}
-            onChange={(event) => onNumResourcesChange(Number(event.target.value))}
-            disabled={disabled}
-          />
+          <NumberInput value={numResources} min={0} max={50} onChange={onNumResourcesChange} disabled={disabled} />
         </label>
         {manualMode && (
           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.5rem" }}>

@@ -203,6 +203,21 @@ select {
   padding: 0.35rem 0.45rem;
 }
 
+.number-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+input.input-error {
+  border-color: #f87171;
+}
+
+.input-error-text {
+  color: #f87171;
+  font-size: 0.72rem;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
