@@ -65,11 +65,11 @@ export function CoastlineStep({
       <div className="control-grid">
         <label>
           Height
-          <NumberInput value={height} min={40} max={640} step={20} onChange={onHeightChange} disabled={isDisabled} />
+          <NumberInput value={height} min={40} max={1280} step={20} onChange={onHeightChange} disabled={isDisabled} />
         </label>
         <label>
           Width
-          <NumberInput value={width} min={40} max={640} step={20} onChange={onWidthChange} disabled={isDisabled} />
+          <NumberInput value={width} min={40} max={1280} step={20} onChange={onWidthChange} disabled={isDisabled} />
         </label>
         <label>
           Mirroring

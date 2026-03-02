@@ -781,6 +781,25 @@ def write_tmx(state: WizardState, blueprint_xml=None):
             if data_elem is not None:
                 data_elem.text = layer_data_map[name]
 
+    # Ensure the map has a Triggers objectgroup with map_info type=skirmish.
+    # Without this, Rusted Warfare does not treat the map as a skirmish map
+    # and all players end up as allies (instant victory).
+    triggers = root.find("objectgroup[@name='Triggers']")
+    if triggers is None:
+        triggers = ET.SubElement(root, 'objectgroup', name='Triggers')
+    map_info = None
+    for obj in triggers.findall('object'):
+        if obj.get('name') == 'map_info':
+            map_info = obj
+            break
+    if map_info is None:
+        map_info = ET.SubElement(triggers, 'object',
+                                 id='1', name='map_info',
+                                 x='0', y='0',
+                                 width=str(w * 20), height=str(h * 20))
+        props = ET.SubElement(map_info, 'properties')
+        ET.SubElement(props, 'property', name='type', value='skirmish')
+
     if blueprint_xml:
         return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
 

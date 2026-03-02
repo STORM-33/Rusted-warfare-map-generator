@@ -238,8 +238,8 @@ export function WizardApp({ pyodide }: { pyodide: UsePyodideResult }) {
 
     const response = (await runAction("Generating coastline", "run_coastline", {
       grid,
-      height: clampValue(height, 40, 640),
-      width: clampValue(width, 40, 640),
+      height: clampValue(height, 40, 1280),
+      width: clampValue(width, 40, 1280),
       mirroring,
       tileset,
       heightLevels,

@@ -238,8 +238,8 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
 
             const response = (await callAction("quick_generate", {
                 grid,
-                height: clampValue(height, 40, 640),
-                width: clampValue(width, 40, 640),
+                height: clampValue(height, 40, 1280),
+                width: clampValue(width, 40, 1280),
                 mirroring,
                 tileset,
                 heightLevels,
@@ -379,11 +379,11 @@ export function QuickGeneratePage({ pyodide }: { pyodide: UsePyodideResult }) {
                         <div className="control-grid">
                             <label>
                                 Height
-                                <NumberInput value={height} min={40} max={640} step={20} onChange={setHeight} disabled={isDisabled} />
+                                <NumberInput value={height} min={40} max={1280} step={20} onChange={setHeight} disabled={isDisabled} />
                             </label>
                             <label>
                                 Width
-                                <NumberInput value={width} min={40} max={640} step={20} onChange={setWidth} disabled={isDisabled} />
+                                <NumberInput value={width} min={40} max={1280} step={20} onChange={setWidth} disabled={isDisabled} />
                             </label>
                             <label>
                                 Mirroring
