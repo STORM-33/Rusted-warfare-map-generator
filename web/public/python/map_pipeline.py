@@ -800,7 +800,7 @@ def write_tmx(state: WizardState, blueprint_xml=None):
         props = ET.SubElement(map_info, 'properties')
         ET.SubElement(props, 'property', name='type', value='skirmish')
         ET.SubElement(props, 'property', name='introText',
-                      value='Map generated with Rusted Warfare Map Generator\\n'
+                      value='Map generated with Rusted Warfare Map Generator by STORM\\n'
                             'https://web-two-delta-61.vercel.app')
 
     if blueprint_xml:
