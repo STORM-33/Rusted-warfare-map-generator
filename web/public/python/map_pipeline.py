@@ -396,13 +396,15 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
                 used_ids.add(g["id"] + 5)
 
     team_a_id = 101
-    if mirrored or len(placed) > 1:
+    if len(placed) > 1:
+        # Mirrored pair: pick from paired slots (101-105 / 106-110)
         for i in range(5):
             candidate = 101 + i
             if candidate not in used_ids and (candidate + 5) not in used_ids:
                 team_a_id = candidate
                 break
     else:
+        # Single CC: assign next available team sequentially
         used_teams = {ID_TO_TEAM.get(uid, 1) for uid in used_ids}
         for team in range(1, 11):
             if team not in used_teams:
