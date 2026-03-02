@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "npm run build:wasm && next dev",
-    "build": "npm run build:wasm && next build",
+    "build": "next build",
     "build:wasm": "cd rust-map-gen && (npx wasm-pack build --target web --out-dir ../public/wasm-pkg || (echo Retrying with GNU toolchain... && set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu\" && npx wasm-pack build --target web --out-dir ../public/wasm-pkg))",
     "start": "next start",
     "lint": "eslint"

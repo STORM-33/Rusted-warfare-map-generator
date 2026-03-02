@@ -45,4 +45,3 @@ __pycache__/
 
 # Rust / WASM
 /rust-map-gen/target/
-/public/wasm-pkg/

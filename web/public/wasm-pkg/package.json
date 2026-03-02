@@ -1,0 +1,15 @@
+{
+  "name": "rust-map-gen",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "rust_map_gen_bg.wasm",
+    "rust_map_gen.js",
+    "rust_map_gen.d.ts"
+  ],
+  "main": "rust_map_gen.js",
+  "types": "rust_map_gen.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
