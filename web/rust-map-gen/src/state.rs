@@ -1,5 +1,25 @@
 use serde::Serialize;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum HillDrawingMode {
+    Brush,
+    Polygon,
+}
+
+#[derive(Clone, Debug)]
+pub struct PolygonData {
+    pub id: u32,
+    pub vertices: Vec<[i32; 2]>,
+    pub edge_gaps: Vec<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BrushStroke {
+    pub points: Vec<[i32; 2]>,
+    pub value: i32,
+    pub brush_size: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Matrix {
     pub rows: usize,
@@ -92,6 +112,7 @@ pub struct WizardState {
     pub num_resource_pulls: i32,
     pub randomized_matrix: Option<Matrix>,
     pub coastline_height_map: Option<Matrix>,
+    // Legacy wall_matrix - kept for compatibility, but prefer brush_wall_matrix
     pub wall_matrix: Option<Matrix>,
     pub perlin_seed: Option<i32>,
     pub perlin_map: Option<Vec<f64>>,
@@ -103,8 +124,25 @@ pub struct WizardState {
     pub resource_positions: Vec<(usize, usize)>,
     pub resource_groups: Vec<Vec<(usize, usize)>>,
     pub id_matrix: Option<Matrix>,
+    // Legacy polygon_walls - kept for compatibility
+    pub polygon_walls: Vec<PolygonData>,
     pub current_step: WizardStep,
     pub completed_step: i32,
+
+    // ========== NEW: Hill Drawing Mode ==========
+    pub hill_drawing_mode: HillDrawingMode,
+
+    // ========== BRUSH MODE STATE ==========
+    pub brush_wall_matrix: Option<Matrix>,
+    pub brush_strokes: Vec<BrushStroke>,
+    pub brush_strokes_redo: Vec<BrushStroke>,
+
+    // ========== POLYGON MODE STATE ==========
+    pub polygon_depth_matrix: Option<Matrix>,
+    pub polygons: Vec<PolygonData>,
+    pub mirrored_polygons: Vec<PolygonData>,
+    pub polygons_undo: Vec<Vec<PolygonData>>,
+    pub polygons_redo: Vec<Vec<PolygonData>>,
 }
 
 impl Default for WizardState {
@@ -132,8 +170,19 @@ impl Default for WizardState {
             resource_positions: Vec::new(),
             resource_groups: Vec::new(),
             id_matrix: None,
+            polygon_walls: Vec::new(),
             current_step: WizardStep::Coastline,
             completed_step: -1,
+            // New fields
+            hill_drawing_mode: HillDrawingMode::Brush,
+            brush_wall_matrix: None,
+            brush_strokes: Vec::new(),
+            brush_strokes_redo: Vec::new(),
+            polygon_depth_matrix: None,
+            polygons: Vec::new(),
+            mirrored_polygons: Vec::new(),
+            polygons_undo: Vec::new(),
+            polygons_redo: Vec::new(),
         }
     }
 }
@@ -146,6 +195,16 @@ impl WizardState {
         }
         if step <= WizardStep::Hills {
             self.wall_matrix = None;
+            self.polygon_walls.clear();
+            // Also clear new matrices
+            self.brush_wall_matrix = None;
+            self.brush_strokes.clear();
+            self.brush_strokes_redo.clear();
+            self.polygon_depth_matrix = None;
+            self.polygons.clear();
+            self.mirrored_polygons.clear();
+            self.polygons_undo.clear();
+            self.polygons_redo.clear();
         }
         if step <= WizardStep::HeightOcean {
             self.perlin_seed = None;
@@ -181,7 +240,30 @@ impl WizardState {
         self.wall_matrix.as_mut().expect("wall matrix initialized")
     }
 
+    pub fn ensure_brush_wall_matrix(&mut self) -> &mut Matrix {
+        let expected = (self.height, self.width);
+        let recreate = self
+            .brush_wall_matrix
+            .as_ref()
+            .map(|m| !m.same_shape(expected.0, expected.1))
+            .unwrap_or(true);
+        if recreate {
+            self.brush_wall_matrix = Some(Matrix::zeros(expected.0, expected.1));
+        }
+        self.brush_wall_matrix.as_mut().expect("brush wall matrix initialized")
+    }
+
     pub fn snapshot(&self) -> WizardSnapshot {
+        // Return only the active mode's matrix in wall_matrix field
+        let active_wall_matrix = match self.hill_drawing_mode {
+            HillDrawingMode::Brush => {
+                self.brush_wall_matrix.as_ref().map(MatrixPayload::from)
+            }
+            HillDrawingMode::Polygon => {
+                self.polygon_depth_matrix.as_ref().map(MatrixPayload::from)
+            }
+        };
+
         WizardSnapshot {
             meta: SnapshotMeta {
                 height: self.height as i32,
@@ -194,6 +276,10 @@ impl WizardState {
                 num_resource_pulls: self.num_resource_pulls,
                 completed_step: self.completed_step,
                 current_step: self.current_step as i32,
+                hill_drawing_mode: match self.hill_drawing_mode {
+                    HillDrawingMode::Brush => "brush".to_string(),
+                    HillDrawingMode::Polygon => "polygon".to_string(),
+                },
             },
             cc_positions: self
                 .cc_positions
@@ -207,7 +293,7 @@ impl WizardState {
                 .collect(),
             matrices: SnapshotMatrices {
                 coastline_height_map: self.coastline_height_map.as_ref().map(MatrixPayload::from),
-                wall_matrix: self.wall_matrix.as_ref().map(MatrixPayload::from),
+                wall_matrix: active_wall_matrix,
                 height_map: self.height_map.as_ref().map(MatrixPayload::from),
                 id_matrix: self.id_matrix.as_ref().map(MatrixPayload::from),
                 items_matrix: self.items_matrix.as_ref().map(MatrixPayload::from),
@@ -244,6 +330,7 @@ pub struct SnapshotMeta {
     pub num_resource_pulls: i32,
     pub completed_step: i32,
     pub current_step: i32,
+    pub hill_drawing_mode: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

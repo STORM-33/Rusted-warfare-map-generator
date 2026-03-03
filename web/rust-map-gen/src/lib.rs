@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use pipeline::{CoastlineFrame, QuickGenerateFrame};
 use serde::Serialize;
 use serde_json::Value;
-use state::{Matrix, WizardSnapshot, WizardState, WizardStep};
+use state::{HillDrawingMode, Matrix, PolygonData, WizardSnapshot, WizardState, WizardStep};
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -58,6 +58,69 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
             }
             "clear_walls" => {
                 pipeline::clear_walls(&mut state);
+                Ok(snapshot_only(&state))
+            }
+            "set_wall_cells" => {
+                let cells = parse_points(&params, "cells");
+                let value = get_i32(&params, &["value"]).unwrap_or(1);
+                pipeline::set_wall_cells(&mut state, &cells, value)?;
+                Ok(snapshot_only(&state))
+            }
+            "set_polygon_walls" => {
+                let polygons = parse_polygon_data(&params);
+                pipeline::set_polygon_walls(&mut state, polygons)?;
+                Ok(snapshot_only(&state))
+            }
+            // ========== NEW: BRUSH MODE ACTIONS ==========
+            "draw_brush_walls" => {
+                let points = parse_points(&params, "points");
+                let value = get_i32(&params, &["value"]).unwrap_or(1);
+                let brush_size = get_usize(&params, &["brush_size"]).unwrap_or(1).max(1);
+                pipeline::draw_brush_walls(&mut state, &points, value, brush_size)?;
+                Ok(snapshot_only(&state))
+            }
+            "undo_brush" => {
+                pipeline::undo_brush_stroke(&mut state)?;
+                Ok(snapshot_only(&state))
+            }
+            "redo_brush" => {
+                pipeline::redo_brush_stroke(&mut state)?;
+                Ok(snapshot_only(&state))
+            }
+            "clear_brush_walls" => {
+                pipeline::clear_brush_walls(&mut state);
+                Ok(snapshot_only(&state))
+            }
+            // ========== NEW: POLYGON MODE ACTIONS ==========
+            "update_polygons" => {
+                let polygons = parse_polygon_data_with_id(&params);
+                pipeline::update_polygons(&mut state, polygons)?;
+                Ok(snapshot_only(&state))
+            }
+            "undo_polygons" => {
+                pipeline::undo_polygons(&mut state)?;
+                Ok(snapshot_only(&state))
+            }
+            "redo_polygons" => {
+                pipeline::redo_polygons(&mut state)?;
+                Ok(snapshot_only(&state))
+            }
+            "clear_all_polygons" => {
+                pipeline::clear_all_polygons(&mut state);
+                Ok(snapshot_only(&state))
+            }
+            "toggle_edge_gap" => {
+                let polygon_id = get_u32(&params, &["polygon_id"]).unwrap_or(0);
+                let edge_index = get_usize(&params, &["edge_index"]).unwrap_or(0);
+                pipeline::toggle_polygon_edge_gap(&mut state, polygon_id, edge_index)?;
+                Ok(snapshot_only(&state))
+            }
+            "set_hill_drawing_mode" => {
+                let mode = params.get("mode").and_then(Value::as_str).unwrap_or("brush");
+                state.hill_drawing_mode = match mode {
+                    "polygon" => HillDrawingMode::Polygon,
+                    _ => HillDrawingMode::Brush,
+                };
                 Ok(snapshot_only(&state))
             }
             "run_height_ocean" => {
@@ -273,6 +336,84 @@ fn parse_points(params: &Value, key: &str) -> Vec<[i32; 2]> {
             Some([r, c])
         })
         .collect()
+}
+
+fn parse_polygon_data(params: &Value) -> Vec<PolygonData> {
+    let Some(polys) = params.get("polygons").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    polys
+        .iter()
+        .filter_map(|poly| {
+            let vertices_arr = poly.get("vertices")?.as_array()?;
+            let vertices: Vec<[i32; 2]> = vertices_arr
+                .iter()
+                .filter_map(|pt| {
+                    let pair = pt.as_array()?;
+                    if pair.len() != 2 {
+                        return None;
+                    }
+                    Some([pair[0].as_i64()? as i32, pair[1].as_i64()? as i32])
+                })
+                .collect();
+            if vertices.len() < 3 {
+                return None;
+            }
+            let edge_gaps = poly
+                .get("edgeGaps")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().map(|v| v.as_bool().unwrap_or(false)).collect())
+                .unwrap_or_else(|| vec![false; vertices.len()]);
+            Some(PolygonData {
+                id: 0, // Default ID
+                vertices,
+                edge_gaps,
+            })
+        })
+        .collect()
+}
+
+fn parse_polygon_data_with_id(params: &Value) -> Vec<PolygonData> {
+    let Some(polys) = params.get("polygons").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    polys
+        .iter()
+        .filter_map(|poly| {
+            let id = poly
+                .get("id")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            let vertices_arr = poly.get("vertices")?.as_array()?;
+            let vertices: Vec<[i32; 2]> = vertices_arr
+                .iter()
+                .filter_map(|pt| {
+                    let pair = pt.as_array()?;
+                    if pair.len() != 2 {
+                        return None;
+                    }
+                    Some([pair[0].as_i64()? as i32, pair[1].as_i64()? as i32])
+                })
+                .collect();
+            if vertices.len() < 3 {
+                return None;
+            }
+            let edge_gaps = poly
+                .get("edgeGaps")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().map(|v| v.as_bool().unwrap_or(false)).collect())
+                .unwrap_or_else(|| vec![false; vertices.len()]);
+            Some(PolygonData {
+                id,
+                vertices,
+                edge_gaps,
+            })
+        })
+        .collect()
+}
+
+fn get_u32(params: &Value, keys: &[&str]) -> Option<u32> {
+    get_i64(params, keys).and_then(|value| u32::try_from(value).ok())
 }
 
 fn matrix_from_grid_value(value: &Value) -> Option<Matrix> {

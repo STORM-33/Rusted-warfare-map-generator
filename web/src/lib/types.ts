@@ -16,6 +16,8 @@ export interface SerializedMatrixPayload {
   data: number[] | Int32Array;
 }
 
+export type HillDrawingMode = "brush" | "polygon";
+
 export interface WizardSnapshotMeta {
   height: number;
   width: number;
@@ -27,6 +29,7 @@ export interface WizardSnapshotMeta {
   num_resource_pulls: number;
   completed_step: number;
   current_step: number;
+  hill_drawing_mode: HillDrawingMode;
 }
 
 export interface WizardSnapshot {
@@ -46,6 +49,8 @@ export type WorkerAction =
   | "run_coastline"
   | "draw_walls"
   | "clear_walls"
+  | "set_wall_cells"
+  | "set_polygon_walls"
   | "run_height_ocean"
   | "place_cc_manual"
   | "remove_cc_manual"
@@ -60,7 +65,19 @@ export type WorkerAction =
   | "get_state_snapshot"
   | "run_finalize"
   | "quick_generate"
-  | "reset_state";
+  | "reset_state"
+  // New brush mode actions
+  | "draw_brush_walls"
+  | "undo_brush"
+  | "redo_brush"
+  | "clear_brush_walls"
+  // New polygon mode actions
+  | "update_polygons"
+  | "undo_polygons"
+  | "redo_polygons"
+  | "clear_all_polygons"
+  | "toggle_edge_gap"
+  | "set_hill_drawing_mode";
 
 export interface WorkerRequestMessage {
   type: WorkerAction;
@@ -133,3 +150,18 @@ export type WorkerResponseMessage =
   | WorkerErrorMessage;
 
 export type RenderMode = "sampled" | "full";
+
+export interface Polygon {
+  id: number;
+  vertices: [number, number][]; // [row, col] grid coords
+  edgeGaps: boolean[];          // per-edge: true = no wall on this edge
+  closed: boolean;
+}
+
+export interface BrushStroke {
+  points: [number, number][];
+  value: 0 | 1 | 2;
+  brushSize: number;
+}
+
+export type WallDrawingMode = "brush" | "polygon";

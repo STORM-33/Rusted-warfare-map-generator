@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UseMapEngineResult } from "@/hooks/useMapEngine";
 import { useWizardState } from "@/hooks/useWizardState";
-import type { CoastlineFrame, WorkerAction, WorkerStepCompleteMessage, WizardSnapshot } from "@/lib/types";
+import type { CoastlineFrame, HillDrawingMode, Polygon, WorkerAction, WorkerStepCompleteMessage, WizardSnapshot } from "@/lib/types";
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
 import { loadTilesetsFromBlueprint } from "@/lib/tilesetExtractor";
+import { generatePolygonId, findPolygonAtPoint } from "@/lib/polygonUtils";
 import { StepBar } from "@/components/StepBar";
 import { MapCanvas } from "@/components/MapCanvas";
 import { CoastlineStep } from "@/components/steps/CoastlineStep";
@@ -23,8 +24,6 @@ type MirroringMode =
   | "diagonal1"
   | "diagonal2"
   | "both";
-
-
 
 const DEFAULT_GRID = [
   [0, 0, 1, 0, 0],
@@ -101,13 +100,6 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
   const [oceanLevels, setOceanLevels] = useState(3);
   const [numPlayers, setNumPlayers] = useState(4);
   const [numResources, setNumResources] = useState(12);
-  const [drawValue, setDrawValue] = useState<1 | 2>(1);
-  const [eraseMode, setEraseMode] = useState(false);
-  const [brushSize, setBrushSize] = useState(3);
-  const [ccManual, setCcManual] = useState(true);
-  const [ccMirrored, setCcMirrored] = useState(true);
-  const [resourceManual, setResourceManual] = useState(true);
-  const [resourceMirrored, setResourceMirrored] = useState(true);
   const [busy, setBusy] = useState(false);
   const [statusText, setStatusText] = useState("Waiting for runtime...");
   const [tilesets, setTilesets] = useState<ExtractedTilesets>();
@@ -116,7 +108,44 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
   const [animationIndex, setAnimationIndex] = useState(-1);
   const animationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ========== HILL DRAWING MODE STATE ==========
+  const [hillMode, setHillMode] = useState<HillDrawingMode>("brush");
+  
+  // ========== CC/RESOURCE MODE STATE ==========
+  const [ccManual, setCcManual] = useState(true);
+  const [ccMirrored, setCcMirrored] = useState(true);
+  const [resourceManual, setResourceManual] = useState(true);
+  const [resourceMirrored, setResourceMirrored] = useState(true);
+  
+  // ========== BRUSH MODE STATE ==========
+  const [drawValue, setDrawValue] = useState<1 | 2>(1);
+  const [eraseMode, setEraseMode] = useState(false);
+  const [brushSize, setBrushSize] = useState(3);
+  
+  // ========== POLYGON MODE STATE ==========
+  const [polygons, setPolygons] = useState<Polygon[]>([]);
+  const [drawingPolygon, setDrawingPolygon] = useState<Polygon | null>(null);
+  const [selectedPolygonId, setSelectedPolygonId] = useState<number | null>(null);
+  const [selectedEdgeIndex, setSelectedEdgeIndex] = useState<number | null>(null);
+
   const animating = animationFrames.length > 0 && animationIndex >= 0;
+
+  // Sync hill mode with backend when it changes
+  const handleModeChange = useCallback(async (mode: HillDrawingMode) => {
+    setHillMode(mode);
+    try {
+      await callAction("set_hill_drawing_mode", { mode });
+    } catch (err) {
+      setStatusText(`Mode switch error: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  // Initialize hill mode from snapshot
+  useEffect(() => {
+    if (snapshot?.meta.hill_drawing_mode) {
+      setHillMode(snapshot.meta.hill_drawing_mode);
+    }
+  }, [snapshot?.meta.hill_drawing_mode]);
 
   // Re-apply mirroring to the grid when the mirror mode changes
   useEffect(() => {
@@ -320,16 +349,208 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     ? `Step ${animationIndex + 1}/${animationFrames.length}`
     : undefined;
 
-  const handleDrawWalls = useCallback(
+  // ========== BRUSH MODE HANDLERS ==========
+  const handleDrawBrushWalls = useCallback(
     (points: [number, number][], value: 0 | 1 | 2) => {
-      void callAction("draw_walls", { points, value, brush_size: brushSize }).catch((drawError) => {
+      void callAction("draw_brush_walls", { points, value, brush_size: brushSize }).catch((drawError) => {
         setStatusText(
-          `Wall draw error: ${drawError instanceof Error ? drawError.message : "unknown"}`,
+          `Brush draw error: ${drawError instanceof Error ? drawError.message : "unknown"}`,
         );
       });
     },
     [brushSize, callAction],
   );
+
+  const handleUndoBrush = useCallback(async () => {
+    try {
+      await callAction("undo_brush");
+      setStatusText("Undo brush stroke");
+    } catch (err) {
+      setStatusText(`Undo failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  const handleRedoBrush = useCallback(async () => {
+    try {
+      await callAction("redo_brush");
+      setStatusText("Redo brush stroke");
+    } catch (err) {
+      setStatusText(`Redo failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  const handleClearBrushWalls = useCallback(() => {
+    void runAction("Clearing brush walls", "clear_brush_walls");
+  }, [runAction]);
+
+  // ========== POLYGON MODE HANDLERS ==========
+  const CLOSE_THRESHOLD = 3;
+
+  const handleUpdatePolygons = useCallback(async (newPolygons: Polygon[]) => {
+    setPolygons(newPolygons);
+    try {
+      await callAction("update_polygons", {
+        polygons: newPolygons
+          .filter((p) => p.closed && p.vertices.length >= 3)
+          .map((p) => ({
+            id: p.id,
+            vertices: p.vertices,
+            edgeGaps: p.edgeGaps,
+          })),
+      });
+    } catch (syncError) {
+      setStatusText(
+        `Polygon sync error: ${syncError instanceof Error ? syncError.message : "unknown"}`,
+      );
+    }
+  }, [callAction]);
+
+  const handleUndoPolygons = useCallback(async () => {
+    try {
+      await callAction("undo_polygons");
+      setStatusText("Undo polygon action");
+    } catch (err) {
+      setStatusText(`Undo failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  const handleRedoPolygons = useCallback(async () => {
+    try {
+      await callAction("redo_polygons");
+      setStatusText("Redo polygon action");
+    } catch (err) {
+      setStatusText(`Redo failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  const handleClearAllPolygons = useCallback(() => {
+    setPolygons([]);
+    setDrawingPolygon(null);
+    setSelectedPolygonId(null);
+    setSelectedEdgeIndex(null);
+    void runAction("Clearing all polygons", "clear_all_polygons");
+  }, [runAction]);
+
+  const handleToggleEdgeGap = useCallback(async (polygonId: number, edgeIndex: number) => {
+    try {
+      await callAction("toggle_edge_gap", { polygon_id: polygonId, edge_index: edgeIndex });
+      // Update local state to reflect the change
+      setPolygons((prev) =>
+        prev.map((p) => {
+          if (p.id === polygonId && edgeIndex < p.edgeGaps.length) {
+            const newGaps = [...p.edgeGaps];
+            newGaps[edgeIndex] = !newGaps[edgeIndex];
+            return { ...p, edgeGaps: newGaps };
+          }
+          return p;
+        })
+      );
+    } catch (err) {
+      setStatusText(`Toggle gap failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }, [callAction]);
+
+  const handlePolygonClick = useCallback(
+    (row: number, col: number) => {
+      if (drawingPolygon) {
+        const verts = drawingPolygon.vertices;
+        // Check if clicking near first vertex to close
+        if (verts.length >= 3) {
+          const [fr, fc] = verts[0];
+          const dist = Math.sqrt((row - fr) ** 2 + (col - fc) ** 2);
+          if (dist <= CLOSE_THRESHOLD) {
+            const closed: Polygon = {
+              ...drawingPolygon,
+              closed: true,
+            };
+            const newPolygons = [...polygons, closed];
+            setDrawingPolygon(null);
+            setSelectedPolygonId(closed.id);
+            setSelectedEdgeIndex(null);
+            void handleUpdatePolygons(newPolygons);
+            return;
+          }
+        }
+        // Add vertex (allow intersection - backend will handle union)
+        setDrawingPolygon({
+          ...drawingPolygon,
+          vertices: [...verts, [row, col]],
+          edgeGaps: [...drawingPolygon.edgeGaps, false],
+        });
+      } else {
+        // Check if clicking inside an existing polygon (for selection)
+        const hit = findPolygonAtPoint(polygons, row, col);
+        if (hit) {
+          setSelectedPolygonId(hit.id);
+          // Check if click is near an edge to select it
+          const nearestEdge = findNearestEdge(hit, row, col, 3);
+          setSelectedEdgeIndex(nearestEdge);
+        } else {
+          // Start new polygon
+          setSelectedPolygonId(null);
+          setSelectedEdgeIndex(null);
+          setDrawingPolygon({
+            id: generatePolygonId(),
+            vertices: [[row, col]],
+            edgeGaps: [],
+            closed: false,
+          });
+        }
+      }
+    },
+    [drawingPolygon, polygons, handleUpdatePolygons],
+  );
+
+  const handlePolygonRightClick = useCallback(() => {
+    if (drawingPolygon) {
+      setDrawingPolygon(null);
+    } else {
+      setSelectedPolygonId(null);
+      setSelectedEdgeIndex(null);
+    }
+  }, [drawingPolygon]);
+
+  const handleDeletePolygon = useCallback(() => {
+    if (selectedPolygonId == null) return;
+    const newPolygons = polygons.filter((p) => p.id !== selectedPolygonId);
+    setSelectedPolygonId(null);
+    setSelectedEdgeIndex(null);
+    void handleUpdatePolygons(newPolygons);
+  }, [polygons, selectedPolygonId, handleUpdatePolygons]);
+
+  const handleCancelDrawing = useCallback(() => {
+    setDrawingPolygon(null);
+  }, []);
+
+  // Helper to find nearest edge of a polygon to a point
+  const findNearestEdge = (poly: Polygon, row: number, col: number, threshold: number): number | null => {
+    let bestDist = threshold;
+    let bestEdge: number | null = null;
+    
+    for (let i = 0; i < poly.vertices.length; i++) {
+      const [r1, c1] = poly.vertices[i];
+      const [r2, c2] = poly.vertices[(i + 1) % poly.vertices.length];
+      const dist = pointToSegmentDistance(row, col, r1, c1, r2, c2);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestEdge = i;
+      }
+    }
+    
+    return bestEdge;
+  };
+
+  const pointToSegmentDistance = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    if (dx === 0 && dy === 0) {
+      return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+    }
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+  };
 
   const handleCanvasClick = useCallback(
     (row: number, col: number, isRightClick?: boolean) => {
@@ -459,13 +680,13 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
 
   const interactionMode = useMemo(() => {
     if (currentStep === 1) {
-      return "draw" as const;
+      return hillMode === "polygon" ? ("polygon" as const) : ("draw" as const);
     }
     if ((currentStep === 3 && ccManual) || (currentStep === 4 && resourceManual)) {
       return "click" as const;
     }
     return "none" as const;
-  }, [ccManual, currentStep, resourceManual]);
+  }, [ccManual, currentStep, hillMode, resourceManual]);
 
   const canAdvanceFromStep0 = Boolean(snapshot?.matrices.coastline_height_map);
   const canAdvanceFromStep2 = Boolean(snapshot?.matrices.height_map);
@@ -496,6 +717,11 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
       setGrid(DEFAULT_GRID);
       setAnimationFrames([]);
       setAnimationIndex(-1);
+      setPolygons([]);
+      setDrawingPolygon(null);
+      setSelectedPolygonId(null);
+      setSelectedEdgeIndex(null);
+      setHillMode("brush");
       resetWizard();
       setStatusText("App state reset for a new map.");
     } catch {
@@ -529,14 +755,33 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     if (currentStep === 1) {
       return (
         <HillDrawingStep
+          // Mode
+          mode={hillMode}
+          onModeChange={handleModeChange}
+          // Brush props
           drawValue={drawValue}
           eraseMode={eraseMode}
           brushSize={brushSize}
-          disabled={busy || !ready}
           onDrawValueChange={(v) => { setDrawValue(v); setEraseMode(false); }}
           onEraseModeChange={setEraseMode}
           onBrushSizeChange={setBrushSize}
-          onClear={() => void runAction("Clearing walls", "clear_walls")}
+          onClearBrush={handleClearBrushWalls}
+          onUndoBrush={handleUndoBrush}
+          onRedoBrush={handleRedoBrush}
+          // Polygon props
+          polygons={polygons}
+          drawingPolygon={drawingPolygon}
+          selectedPolygonId={selectedPolygonId}
+          selectedEdgeIndex={selectedEdgeIndex}
+          onPolygonClick={handlePolygonClick}
+          onToggleEdgeGap={handleToggleEdgeGap}
+          onDeletePolygon={handleDeletePolygon}
+          onClearPolygons={handleClearAllPolygons}
+          onCancelDrawing={handleCancelDrawing}
+          onUndoPolygons={handleUndoPolygons}
+          onRedoPolygons={handleRedoPolygons}
+          // Common
+          disabled={busy || !ready}
         />
       );
     }
@@ -631,6 +876,10 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     );
   };
 
+  // Determine which props to pass to MapCanvas based on mode
+  const showPolygons = hillMode === "polygon" && currentStep === 1;
+  const showBrushDraw = hillMode === "brush" && currentStep === 1;
+
   return (
     <div className="wizard-shell">
       <header className="wizard-header">
@@ -659,8 +908,18 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
             drawValue={drawValue}
             eraseMode={eraseMode}
             canvasIdPrefix="wizard-map-canvas"
-            onDraw={handleDrawWalls}
+            // Polygon mode: show polygons, hide brush
+            polygons={showPolygons ? polygons : []}
+            drawingPolygon={showPolygons ? drawingPolygon : null}
+            selectedPolygonId={showPolygons ? selectedPolygonId : null}
+            selectedEdgeIndex={showPolygons ? selectedEdgeIndex : null}
+            // Brush mode: show brush interactions
+            onDraw={showBrushDraw ? handleDrawBrushWalls : undefined}
             onClickCell={handleCanvasClick}
+            onPolygonClick={showPolygons ? handlePolygonClick : undefined}
+            onPolygonRightClick={showPolygons ? handlePolygonRightClick : undefined}
+            // Mode for canvas rendering
+            hillMode={currentStep === 1 ? hillMode : null}
           />
         </section>
       </div>

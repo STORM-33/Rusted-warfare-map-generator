@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import type { RenderMode, WizardSnapshot } from "@/lib/types";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { HillDrawingMode, Polygon, RenderMode, WizardSnapshot } from "@/lib/types";
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
 import { renderOverlay, renderSnapshotBase } from "@/lib/canvasRenderer";
 
-type InteractionMode = "none" | "draw" | "click";
+type InteractionMode = "none" | "draw" | "click" | "polygon";
 type RenderPreference = RenderMode | "auto";
+
+// Depth colors for polygon mode visualization
+const DEPTH_COLORS = [
+  "transparent",
+  "rgba(16, 185, 129, 0.25)",   // 1
+  "rgba(16, 185, 129, 0.35)",   // 2
+  "rgba(16, 185, 129, 0.45)",   // 3
+  "rgba(16, 185, 129, 0.55)",   // 4
+  "rgba(16, 185, 129, 0.65)",   // 5
+  "rgba(16, 185, 129, 0.75)",   // 6
+  "rgba(16, 185, 129, 0.85)",   // 7
+  "rgba(16, 185, 129, 0.90)",   // 8
+  "rgba(16, 185, 129, 0.95)",   // 9
+];
 
 type MapCanvasProps = {
   snapshot: WizardSnapshot | null;
@@ -17,9 +31,16 @@ type MapCanvasProps = {
   drawValue: 1 | 2;
   eraseMode?: boolean;
   canvasIdPrefix?: string;
+  polygons?: Polygon[];
+  drawingPolygon?: Polygon | null;
+  selectedPolygonId?: number | null;
+  selectedEdgeIndex?: number | null;
   onDraw?: (points: [number, number][], value: 0 | 1 | 2) => void;
   onClickCell?: (row: number, col: number, isRightClick: boolean) => void;
+  onPolygonClick?: (row: number, col: number) => void;
+  onPolygonRightClick?: () => void;
   onRenderModeChange?: (mode: RenderMode) => void;
+  hillMode?: HillDrawingMode | null;
 };
 
 const getDimensions = (snapshot: WizardSnapshot | null) => {
@@ -46,18 +67,28 @@ export function MapCanvas({
   drawValue,
   eraseMode = false,
   canvasIdPrefix = "map-canvas",
+  polygons = [],
+  drawingPolygon = null,
+  selectedPolygonId = null,
+  selectedEdgeIndex = null,
   onDraw,
   onClickCell,
+  onPolygonClick,
+  onPolygonRightClick,
   onRenderModeChange,
+  hillMode,
 }: MapCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const polygonCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeRenderModeRef = useRef<RenderMode>("sampled");
   const drawingRef = useRef(false);
   const lastCellRef = useRef<string>("");
+  const cursorCellRef = useRef<{ row: number; col: number } | null>(null);
 
   const dimensions = useMemo(() => getDimensions(snapshot), [snapshot]);
 
+  // Base rendering
   useEffect(() => {
     const baseCanvas = baseCanvasRef.current;
     const overlayCanvas = overlayCanvasRef.current;
@@ -82,6 +113,142 @@ export function MapCanvas({
     onRenderModeChange?.(mode);
     renderOverlay(overlayCanvas, snapshot, mode, tilesets);
   }, [onRenderModeChange, requestedMode, snapshot, tilesets, view]);
+
+  // Render depth-based overlay for polygon mode
+  const renderDepthOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+    if (!snapshot?.matrices.wall_matrix) return;
+    
+    const { shape, data } = snapshot.matrices.wall_matrix;
+    const [rows, cols] = shape;
+    const cellSize = activeRenderModeRef.current === "full" ? 20 : 1;
+    
+    // Render depth values as colored cells
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const depth = data[r * cols + c];
+        if (depth > 0 && depth < DEPTH_COLORS.length) {
+          ctx.fillStyle = DEPTH_COLORS[depth];
+          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+  }, [snapshot]);
+
+  // Polygon overlay rendering
+  const renderPolygonOverlay = useCallback(() => {
+    const canvas = polygonCanvasRef.current;
+    const baseCanvas = baseCanvasRef.current;
+    if (!canvas || !baseCanvas) return;
+    canvas.width = baseCanvas.width;
+    canvas.height = baseCanvas.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const cellSize = activeRenderModeRef.current === "full" ? 20 : 1;
+
+    const toX = (col: number) => col * cellSize + cellSize / 2;
+    const toY = (row: number) => row * cellSize + cellSize / 2;
+
+    // If in polygon mode, render depth overlay first
+    if (hillMode === "polygon") {
+      renderDepthOverlay(ctx, canvas);
+    }
+
+    const drawPoly = (poly: Polygon, isSelected: boolean, isDrawing: boolean) => {
+      const verts = poly.vertices;
+      if (verts.length === 0) return;
+
+      // Fill for closed polygons (semi-transparent, but depth overlay is already showing)
+      if (poly.closed && verts.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(toX(verts[0][1]), toY(verts[0][0]));
+        for (let i = 1; i < verts.length; i++) {
+          ctx.lineTo(toX(verts[i][1]), toY(verts[i][0]));
+        }
+        ctx.closePath();
+        // Just a subtle outline fill
+        ctx.fillStyle = isSelected
+          ? "rgba(56, 189, 248, 0.1)"
+          : "rgba(16, 185, 129, 0.05)";
+        ctx.fill();
+      }
+
+      // Edges
+      const edgeColor = isSelected ? "#38bdf8" : "#10b981";
+      const gapColor = isSelected ? "rgba(56, 189, 248, 0.5)" : "rgba(16, 185, 129, 0.5)";
+      
+      for (let i = 0; i < verts.length; i++) {
+        const nextIdx = (i + 1) % verts.length;
+        if (!poly.closed && i === verts.length - 1) break;
+        
+        const isGap = i < poly.edgeGaps.length && poly.edgeGaps[i];
+        const isSelectedEdge = isSelected && selectedEdgeIndex === i;
+        
+        ctx.beginPath();
+        ctx.moveTo(toX(verts[i][1]), toY(verts[i][0]));
+        ctx.lineTo(toX(verts[nextIdx][1]), toY(verts[nextIdx][0]));
+        
+        ctx.lineWidth = isSelectedEdge ? Math.max(2, cellSize / 3) : Math.max(1, cellSize / 6);
+        
+        if (isGap) {
+          ctx.setLineDash([cellSize * 0.4, cellSize * 0.4]);
+          ctx.strokeStyle = gapColor;
+        } else {
+          ctx.setLineDash([]);
+          ctx.strokeStyle = edgeColor;
+        }
+        
+        ctx.stroke();
+        
+        // Highlight selected edge
+        if (isSelectedEdge) {
+          ctx.setLineDash([]);
+          ctx.strokeStyle = "#fbbf24"; // Amber highlight
+          ctx.lineWidth = Math.max(3, cellSize / 4);
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+
+      // Vertices
+      for (let i = 0; i < verts.length; i++) {
+        const [r, c] = verts[i];
+        ctx.beginPath();
+        ctx.arc(toX(c), toY(r), Math.max(2, cellSize / 3), 0, 2 * Math.PI);
+        ctx.fillStyle = i === 0 && isDrawing ? "#fbbf24" : isSelected ? "#38bdf8" : "#10b981";
+        ctx.fill();
+      }
+    };
+
+    // Draw all polygons
+    for (const poly of polygons) {
+      drawPoly(poly, poly.id === selectedPolygonId, false);
+    }
+
+    // Draw in-progress polygon
+    if (drawingPolygon && drawingPolygon.vertices.length > 0) {
+      drawPoly(drawingPolygon, false, true);
+
+      // Preview line from last vertex to cursor
+      const cursor = cursorCellRef.current;
+      if (cursor) {
+        const lastVert = drawingPolygon.vertices[drawingPolygon.vertices.length - 1];
+        ctx.beginPath();
+        ctx.moveTo(toX(lastVert[1]), toY(lastVert[0]));
+        ctx.lineTo(toX(cursor.col), toY(cursor.row));
+        ctx.setLineDash([cellSize * 0.3, cellSize * 0.3]);
+        ctx.strokeStyle = "rgba(251, 191, 36, 0.6)";
+        ctx.lineWidth = Math.max(1, cellSize / 6);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }, [polygons, drawingPolygon, selectedPolygonId, selectedEdgeIndex, hillMode, renderDepthOverlay]);
+
+  useEffect(() => {
+    renderPolygonOverlay();
+  }, [renderPolygonOverlay]);
 
   const eventToCell = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!dimensions) {
@@ -140,6 +307,15 @@ export function MapCanvas({
     if (!cell) {
       return;
     }
+    if (interactionMode === "polygon") {
+      if (event.button === 2) {
+        event.preventDefault();
+        onPolygonRightClick?.();
+      } else if (event.button === 0) {
+        onPolygonClick?.(cell.row, cell.col);
+      }
+      return;
+    }
     if (interactionMode === "click" && (event.button === 0 || event.button === 2)) {
       onClickCell?.(cell.row, cell.col, event.button === 2);
       return;
@@ -156,6 +332,15 @@ export function MapCanvas({
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Update cursor position for polygon preview line
+    if (interactionMode === "polygon") {
+      const cell = eventToCell(event);
+      cursorCellRef.current = cell;
+      if (drawingPolygon && drawingPolygon.vertices.length > 0) {
+        renderPolygonOverlay();
+      }
+    }
+
     if (!drawingRef.current || interactionMode !== "draw") {
       return;
     }
@@ -209,6 +394,7 @@ export function MapCanvas({
     >
       <canvas id={`${canvasIdPrefix}-base`} ref={baseCanvasRef} className="map-layer" />
       <canvas id={`${canvasIdPrefix}-overlay`} ref={overlayCanvasRef} className="map-layer overlay" />
+      <canvas id={`${canvasIdPrefix}-polygon`} ref={polygonCanvasRef} className="map-layer overlay" />
     </div>
   );
 }
