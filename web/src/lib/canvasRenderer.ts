@@ -368,12 +368,27 @@ export const renderOverlay = (
 
   const wallMatrix = snapshot.matrices.wall_matrix;
   if (wallMatrix) {
+    const getWall = (r: number, c: number) =>
+      r >= 0 && r < rows && c >= 0 && c < cols
+        ? getMatrixValue(wallMatrix, r, c)
+        : 0;
+
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
-        const wallValue = getMatrixValue(wallMatrix, row, col);
+        const wallValue = getWall(row, col);
         if (wallValue === 0) {
           continue;
         }
+        // Boundary = any neighbor is empty (treat wall + gap as one filled shape)
+        let isBoundary = false;
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+          if (getWall(row + dr, col + dc) === 0) {
+            isBoundary = true;
+            break;
+          }
+        }
+        if (!isBoundary) continue;
+        // Gap cells on the border show blue, wall cells show red
         context.fillStyle =
           wallValue === 2 ? "rgba(50,150,200,0.55)" : "rgba(200,50,50,0.55)";
         context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);

@@ -429,7 +429,7 @@ export function QuickGeneratePage({ mapEngine }: { mapEngine: UseMapEngineResult
                             </label>
                             <label>
                                 Players
-                                <NumberInput value={numPlayers} min={0} max={10} step={2} onChange={setNumPlayers} disabled={isDisabled} />
+                                <NumberInput value={numPlayers} min={0} max={mirroring === "both" ? 8 : 10} step={2} onChange={setNumPlayers} disabled={isDisabled} />
                             </label>
                             <label>
                                 Resources

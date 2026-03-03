@@ -125,19 +125,31 @@ export function MapCanvas({
     renderOverlay(overlayCanvas, snapshot, mode, tilesets);
   }, [onRenderModeChange, requestedMode, snapshot, tilesets, view]);
 
-  // Render depth-based overlay for polygon mode
+  // Render depth-based overlay for polygon mode — only boundary cells where walls will appear
   const renderDepthOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     if (!snapshot?.matrices.wall_matrix) return;
-    
+
     const { shape, data } = snapshot.matrices.wall_matrix;
     const [rows, cols] = shape;
     const cellSize = activeRenderModeRef.current === "full" ? 20 : 1;
-    
-    // Render depth values as colored cells
+
+    const get = (r: number, c: number) =>
+      r >= 0 && r < rows && c >= 0 && c < cols ? data[r * cols + c] : 0;
+
+    // Only render cells at depth boundaries (where wall tiles will be placed)
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const depth = data[r * cols + c];
-        if (depth > 0 && depth < DEPTH_COLORS.length) {
+        const depth = get(r, c);
+        if (depth <= 0) continue;
+        // Check if any neighbor has lower depth (including diagonals)
+        let isBoundary = false;
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+          if (get(r + dr, c + dc) < depth) {
+            isBoundary = true;
+            break;
+          }
+        }
+        if (isBoundary && depth < DEPTH_COLORS.length) {
           ctx.fillStyle = DEPTH_COLORS[depth];
           ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
         }

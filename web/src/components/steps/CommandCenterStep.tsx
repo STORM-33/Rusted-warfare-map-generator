@@ -6,6 +6,7 @@ type CommandCenterStepProps = {
   numPlayers: number;
   manualMode: boolean;
   mirrored: boolean;
+  mirroringMode: string;
   disabled?: boolean;
   onNumPlayersChange: (value: number) => void;
   onManualModeChange: (manual: boolean) => void;
@@ -19,6 +20,7 @@ export function CommandCenterStep({
   numPlayers,
   manualMode,
   mirrored,
+  mirroringMode,
   disabled,
   onNumPlayersChange,
   onManualModeChange,
@@ -27,6 +29,7 @@ export function CommandCenterStep({
   onUndo,
   onClear,
 }: CommandCenterStepProps) {
+  const maxPlayers = mirroringMode === "both" && mirrored ? 8 : 10;
   return (
     <section className="panel-section">
       <h2>4. Command Centers</h2>
@@ -34,7 +37,7 @@ export function CommandCenterStep({
       <div className="control-grid">
         <label>
           Num Players
-          <NumberInput value={numPlayers} min={2} max={10} onChange={onNumPlayersChange} disabled={disabled} />
+          <NumberInput value={numPlayers} min={2} max={maxPlayers} onChange={onNumPlayersChange} disabled={disabled} />
         </label>
         {manualMode && (
           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.5rem" }}>

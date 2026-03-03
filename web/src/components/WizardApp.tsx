@@ -813,6 +813,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           numPlayers={numPlayers}
           manualMode={ccManual}
           mirrored={ccMirrored}
+          mirroringMode={mirroring}
           disabled={busy || !ready}
           onNumPlayersChange={setNumPlayers}
           onManualModeChange={setCcManual}

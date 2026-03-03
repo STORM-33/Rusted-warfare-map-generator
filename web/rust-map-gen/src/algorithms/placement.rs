@@ -122,30 +122,19 @@ fn mirror_command_centers(
     let scale_x = height_map_shape.1 as f64 / width as f64;
     let mut units = Matrix::zeros(height_map_shape.0, height_map_shape.1);
 
-    for (i, (y, x)) in selected_positions.iter().enumerate() {
+    let mut cc_number = 101i32;
+    for (y, x) in selected_positions {
         let sy = (*y as f64 * scale_y) as usize;
         let sx = (*x as f64 * scale_x) as usize;
-        units.set(
-            sy.min(units.rows - 1),
-            sx.min(units.cols - 1),
-            101 + i as i32,
-        );
-    }
+        units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), cc_number);
+        cc_number += 1;
 
-    for (y, x) in selected_positions {
-        let team1_val = units.get(
-            ((*y as f64 * scale_y) as usize).min(units.rows - 1),
-            ((*x as f64 * scale_x) as usize).min(units.cols - 1),
-        );
         let mirrors = get_mirrors_for_mode(*y, *x, height, width, mirroring);
         for (my, mx) in mirrors {
             let sy = (my as f64 * scale_y) as usize;
             let sx = (mx as f64 * scale_x) as usize;
-            units.set(
-                sy.min(units.rows - 1),
-                sx.min(units.cols - 1),
-                team1_val + 5,
-            );
+            units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), cc_number);
+            cc_number += 1;
         }
     }
     units
@@ -654,13 +643,11 @@ pub(crate) fn rebuild_cc_matrix(state: &mut WizardState) {
         return;
     };
     units.data.fill(0);
+    let mut cc_number = 101i32;
     for group in &state.cc_groups {
-        for (idx, (r, c)) in group.positions.iter().copied().enumerate() {
-            if idx == 0 {
-                units.set(r, c, group.id);
-            } else {
-                units.set(r, c, group.id + 5);
-            }
+        for (r, c) in group.positions.iter().copied() {
+            units.set(r, c, cc_number);
+            cc_number += 1;
         }
     }
 }

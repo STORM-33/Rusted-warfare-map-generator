@@ -544,7 +544,7 @@ pub fn run_place_cc_manual(
         state.units_matrix = Some(Matrix::zeros(h, w));
     }
 
-    let max_ccs = 10usize;
+    let max_ccs = if mirroring == "both" { 8usize } else { 10usize };
     while state.cc_positions.len() + placed.len() > max_ccs && !state.cc_groups.is_empty() {
         let oldest = state.cc_groups.remove(0);
         for (r, c) in oldest.positions {
@@ -557,69 +557,9 @@ pub fn run_place_cc_manual(
         }
     }
 
-    let mut used_ids = HashSet::new();
-    for g in &state.cc_groups {
-        used_ids.insert(g.id);
-        if g.positions.len() > 1 {
-            used_ids.insert(g.id + 5);
-        }
-    }
-
-    let team_a_id = if placed.len() > 1 {
-        let mut selected = 101;
-        for candidate in 101..=105 {
-            if !used_ids.contains(&candidate) && !used_ids.contains(&(candidate + 5)) {
-                selected = candidate;
-                break;
-            }
-        }
-        selected
-    } else {
-        let id_to_team = [
-            (101, 1),
-            (106, 2),
-            (102, 3),
-            (107, 4),
-            (103, 5),
-            (108, 6),
-            (104, 7),
-            (109, 8),
-            (105, 9),
-            (110, 10),
-        ];
-        let team_to_id = [
-            (1, 101),
-            (2, 106),
-            (3, 102),
-            (4, 107),
-            (5, 103),
-            (6, 108),
-            (7, 104),
-            (8, 109),
-            (9, 105),
-            (10, 110),
-        ];
-        let mut used_teams = HashSet::new();
-        for id in used_ids {
-            if let Some((_, team)) = id_to_team.iter().find(|(cc_id, _)| *cc_id == id) {
-                used_teams.insert(*team);
-            }
-        }
-        let mut selected = 101;
-        for team in 1..=10 {
-            if !used_teams.contains(&team) {
-                if let Some((_, id)) = team_to_id.iter().find(|(t, _)| *t == team) {
-                    selected = *id;
-                }
-                break;
-            }
-        }
-        selected
-    };
-
     state.cc_positions.extend(placed.clone());
     state.cc_groups.push(CcGroup {
-        id: team_a_id,
+        id: 0,
         positions: placed.clone(),
     });
     rebuild_cc_matrix(state);
@@ -1384,8 +1324,9 @@ pub fn update_polygons(
         &state.mirrored_polygons,
         h,
         w,
+        state.coastline_height_map.as_ref(),
     );
-    
+
     state.polygon_depth_matrix = Some(depth_matrix);
     Ok(())
 }
@@ -1461,8 +1402,9 @@ fn update_polygons_internal(state: &mut WizardState) -> Result<(), String> {
         &state.mirrored_polygons,
         h,
         w,
+        state.coastline_height_map.as_ref(),
     );
-    
+
     state.polygon_depth_matrix = Some(depth_matrix);
     Ok(())
 }
@@ -1479,6 +1421,7 @@ fn compute_polygon_depth_matrix(
     mirrored_polygons: &[PolygonData],
     rows: usize,
     cols: usize,
+    coastline: Option<&Matrix>,
 ) -> Matrix {
     if user_polygons.is_empty() && mirrored_polygons.is_empty() {
         return Matrix::zeros(rows, cols);
@@ -1513,11 +1456,16 @@ fn compute_polygon_depth_matrix(
         all_layers[i].depth = (max_parent_depth + 1).min(9);
     }
 
-    // 3. Fill matrix
+    // 3. Fill matrix (skip ocean cells)
     let mut matrix = Matrix::zeros(rows, cols);
     for layer in all_layers {
         for (r, c) in layer.cells {
             if r < rows && c < cols {
+                if let Some(coast) = coastline {
+                    if coast.get(r, c) <= 0 {
+                        continue;
+                    }
+                }
                 let current = matrix.get(r, c);
                 matrix.set(r, c, current.max(layer.depth));
             }
