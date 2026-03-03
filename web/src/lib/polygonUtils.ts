@@ -1,3 +1,4 @@
+import polygonClipping from "polygon-clipping";
 import type { Polygon } from "./types";
 
 let nextId = 1;
@@ -173,4 +174,121 @@ export function findPolygonAtPoint(
     if (isPointInPolygon(poly.vertices, row, col)) return poly;
   }
   return null;
+}
+
+// Check if two closed polygons have edges that actually cross each other.
+// Returns false for pure containment (one fully inside the other) — this
+// allows telescopic/nested hills.
+function polygonsHaveEdgeCrossing(polyA: Polygon, polyB: Polygon): boolean {
+  if (!polyA.closed || !polyB.closed) return false;
+  if (polyA.vertices.length < 3 || polyB.vertices.length < 3) return false;
+
+  const bbA = boundingBox(polyA.vertices);
+  const bbB = boundingBox(polyB.vertices);
+  if (bbA.maxR < bbB.minR || bbB.maxR < bbA.minR ||
+      bbA.maxC < bbB.minC || bbB.maxC < bbA.minC) {
+    return false;
+  }
+
+  const edgesA = getEdges(polyA.vertices);
+  const edgesB = getEdges(polyB.vertices);
+  for (const eA of edgesA) {
+    for (const eB of edgesB) {
+      if (edgesIntersect(eA, eB)) return true;
+    }
+  }
+  return false;
+}
+
+// Union a set of polygons that have crossing edges into merged polygon(s).
+function unionPolygons(toMerge: Polygon[]): Polygon[] {
+  // Convert [row, col] → [col, row] for polygon-clipping (expects [x, y])
+  const clipPolygons = toMerge.map((p) =>
+    [p.vertices.map(([r, c]): [number, number] => [c, r]).concat([[p.vertices[0][1], p.vertices[0][0]]])] as [number, number][][]
+  );
+
+  const result = polygonClipping.union(clipPolygons[0], ...clipPolygons.slice(1));
+
+  const mergedPolygons: Polygon[] = [];
+  for (const multiPoly of result) {
+    const outerRing = multiPoly[0];
+    if (!outerRing || outerRing.length < 4) continue;
+    const vertices: [number, number][] = outerRing
+      .slice(0, -1)
+      .map(([x, y]): [number, number] => [Math.round(y), Math.round(x)]);
+    if (vertices.length < 3) continue;
+    mergedPolygons.push({
+      id: generatePolygonId(),
+      vertices,
+      edgeGaps: vertices.map(() => false),
+      closed: true,
+    });
+  }
+  return mergedPolygons;
+}
+
+// Find all polygons transitively connected to `seed` via edge crossings.
+// Returns indices into `pool` that form the connected group.
+function findCrossingGroup(seed: Polygon, pool: Polygon[]): Set<number> {
+  const group = new Set<number>();
+  const queue = [seed];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    for (let i = 0; i < pool.length; i++) {
+      if (group.has(i)) continue;
+      if (polygonsHaveEdgeCrossing(current, pool[i])) {
+        group.add(i);
+        queue.push(pool[i]);
+      }
+    }
+  }
+  return group;
+}
+
+// Merge a newly closed polygon (and its mirrored copies) with any existing
+// polygons whose edges actually cross. Polygons that are fully contained
+// inside another (no edge crossings) are kept separate for telescopic hills.
+export function mergeIntersectingPolygons(
+  existing: Polygon[],
+  newPoly: Polygon,
+  mirrorRows?: number,
+  mirrorCols?: number,
+  mirrorMode?: string,
+): Polygon[] {
+  if (!newPoly.closed || newPoly.vertices.length < 3) {
+    return [...existing, newPoly];
+  }
+
+  // Build the list of new polygons to add: the user polygon + its mirrored copies
+  const newPolygons: Polygon[] = [newPoly];
+  if (mirrorMode && mirrorMode !== "none" && mirrorRows && mirrorCols) {
+    newPolygons.push(...mirrorPolygonVertices(newPoly, mirrorRows, mirrorCols, mirrorMode));
+  }
+
+  // Start with all existing polygons, then add new ones one-by-one,
+  // merging with crossing groups each time.
+  let pool = [...existing];
+
+  for (const np of newPolygons) {
+    const crossingIndices = findCrossingGroup(np, pool);
+
+    if (crossingIndices.size === 0) {
+      pool.push(np);
+      continue;
+    }
+
+    const nonCrossing = pool.filter((_, i) => !crossingIndices.has(i));
+    const toMerge = [...Array.from(crossingIndices).map((i) => pool[i]), np];
+
+    try {
+      const merged = unionPolygons(toMerge);
+      pool = merged.length > 0
+        ? [...nonCrossing, ...merged]
+        : [...nonCrossing, np]; // fallback
+    } catch {
+      pool = [...nonCrossing, np]; // fallback
+    }
+  }
+
+  return pool;
 }

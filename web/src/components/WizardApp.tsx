@@ -6,7 +6,7 @@ import { useWizardState } from "@/hooks/useWizardState";
 import type { CoastlineFrame, HillDrawingMode, Polygon, WorkerAction, WorkerStepCompleteMessage, WizardSnapshot } from "@/lib/types";
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
 import { loadTilesetsFromBlueprint } from "@/lib/tilesetExtractor";
-import { generatePolygonId, findPolygonAtPoint } from "@/lib/polygonUtils";
+import { generatePolygonId, findPolygonAtPoint, mergeIntersectingPolygons } from "@/lib/polygonUtils";
 import { StepBar } from "@/components/StepBar";
 import { MapCanvas } from "@/components/MapCanvas";
 import { CoastlineStep } from "@/components/steps/CoastlineStep";
@@ -463,9 +463,14 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
               ...drawingPolygon,
               closed: true,
             };
-            const newPolygons = [...polygons, closed];
+            const mapRows = snapshot?.meta.height;
+            const mapCols = snapshot?.meta.width;
+            const newPolygons = mergeIntersectingPolygons(
+              polygons, closed, mapRows, mapCols, mirroring,
+            );
             setDrawingPolygon(null);
-            setSelectedPolygonId(closed.id);
+            // Select the last polygon in the result (the merged one or the new one)
+            setSelectedPolygonId(newPolygons[newPolygons.length - 1]?.id ?? null);
             setSelectedEdgeIndex(null);
             void handleUpdatePolygons(newPolygons);
             return;
@@ -498,7 +503,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
         }
       }
     },
-    [drawingPolygon, polygons, handleUpdatePolygons],
+    [drawingPolygon, polygons, handleUpdatePolygons, snapshot?.meta.height, snapshot?.meta.width, mirroring],
   );
 
   const handlePolygonRightClick = useCallback(() => {
@@ -920,6 +925,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
             onPolygonRightClick={showPolygons ? handlePolygonRightClick : undefined}
             // Mode for canvas rendering
             hillMode={currentStep === 1 ? hillMode : null}
+            mirroring={showPolygons ? mirroring : undefined}
           />
         </section>
       </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { HillDrawingMode, Polygon, RenderMode, WizardSnapshot } from "@/lib/types";
 import type { ExtractedTilesets } from "@/lib/tilesetExtractor";
 import { renderOverlay, renderSnapshotBase } from "@/lib/canvasRenderer";
+import { mirrorPolygonVertices } from "@/lib/polygonUtils";
 
 type InteractionMode = "none" | "draw" | "click" | "polygon";
 type RenderPreference = RenderMode | "auto";
@@ -41,6 +42,7 @@ type MapCanvasProps = {
   onPolygonRightClick?: () => void;
   onRenderModeChange?: (mode: RenderMode) => void;
   hillMode?: HillDrawingMode | null;
+  mirroring?: string;
 };
 
 const getDimensions = (snapshot: WizardSnapshot | null) => {
@@ -77,6 +79,7 @@ export function MapCanvas({
   onPolygonRightClick,
   onRenderModeChange,
   hillMode,
+  mirroring,
 }: MapCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,6 +90,14 @@ export function MapCanvas({
   const cursorCellRef = useRef<{ row: number; col: number } | null>(null);
 
   const dimensions = useMemo(() => getDimensions(snapshot), [snapshot]);
+
+  // Compute mirrored ghost polygons
+  const mirroredPolygons = useMemo(() => {
+    if (!mirroring || mirroring === "none" || !dimensions) return [];
+    const { rows, cols } = dimensions;
+    const allSource = [...polygons, ...(drawingPolygon ? [drawingPolygon] : [])];
+    return allSource.flatMap((p) => mirrorPolygonVertices(p, rows, cols, mirroring));
+  }, [polygons, drawingPolygon, mirroring, dimensions]);
 
   // Base rendering
   useEffect(() => {
@@ -226,6 +237,50 @@ export function MapCanvas({
       drawPoly(poly, poly.id === selectedPolygonId, false);
     }
 
+    // Draw mirrored ghost polygons
+    const drawGhostPoly = (poly: Polygon) => {
+      const verts = poly.vertices;
+      if (verts.length === 0) return;
+
+      // Ghost fill
+      if (poly.closed && verts.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(toX(verts[0][1]), toY(verts[0][0]));
+        for (let i = 1; i < verts.length; i++) {
+          ctx.lineTo(toX(verts[i][1]), toY(verts[i][0]));
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(139, 92, 246, 0.05)";
+        ctx.fill();
+      }
+
+      // Ghost edges — all dashed
+      const edgeCount = poly.closed ? verts.length : verts.length - 1;
+      for (let i = 0; i < edgeCount; i++) {
+        const nextIdx = (i + 1) % verts.length;
+        ctx.beginPath();
+        ctx.moveTo(toX(verts[i][1]), toY(verts[i][0]));
+        ctx.lineTo(toX(verts[nextIdx][1]), toY(verts[nextIdx][0]));
+        ctx.setLineDash([cellSize * 0.3, cellSize * 0.3]);
+        ctx.strokeStyle = "rgba(139, 92, 246, 0.45)";
+        ctx.lineWidth = Math.max(1, cellSize / 8);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Ghost vertices — smaller
+      for (const [r, c] of verts) {
+        ctx.beginPath();
+        ctx.arc(toX(c), toY(r), Math.max(1.5, cellSize / 5), 0, 2 * Math.PI);
+        ctx.fillStyle = "rgba(139, 92, 246, 0.5)";
+        ctx.fill();
+      }
+    };
+
+    for (const ghost of mirroredPolygons) {
+      drawGhostPoly(ghost);
+    }
+
     // Draw in-progress polygon
     if (drawingPolygon && drawingPolygon.vertices.length > 0) {
       drawPoly(drawingPolygon, false, true);
@@ -242,9 +297,31 @@ export function MapCanvas({
         ctx.lineWidth = Math.max(1, cellSize / 6);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Mirrored preview lines
+        if (mirroring && mirroring !== "none" && dimensions) {
+          const tempPoly: Polygon = {
+            id: -999,
+            vertices: [lastVert, [cursor.row, cursor.col]],
+            edgeGaps: [false],
+            closed: false,
+          };
+          const mirroredLines = mirrorPolygonVertices(tempPoly, dimensions.rows, dimensions.cols, mirroring);
+          for (const ml of mirroredLines) {
+            if (ml.vertices.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(toX(ml.vertices[0][1]), toY(ml.vertices[0][0]));
+            ctx.lineTo(toX(ml.vertices[1][1]), toY(ml.vertices[1][0]));
+            ctx.setLineDash([cellSize * 0.3, cellSize * 0.3]);
+            ctx.strokeStyle = "rgba(139, 92, 246, 0.4)";
+            ctx.lineWidth = Math.max(1, cellSize / 8);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
       }
     }
-  }, [polygons, drawingPolygon, selectedPolygonId, selectedEdgeIndex, hillMode, renderDepthOverlay]);
+  }, [polygons, drawingPolygon, selectedPolygonId, selectedEdgeIndex, hillMode, renderDepthOverlay, mirroredPolygons, mirroring, dimensions]);
 
   useEffect(() => {
     renderPolygonOverlay();
