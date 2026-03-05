@@ -26,11 +26,11 @@ export function HeightOceanStep({
       <div className="control-grid">
         <label>
           Height Levels
-          <NumberInput value={heightLevels} min={1} max={20} onChange={onHeightLevelsChange} disabled={disabled} />
+          <NumberInput value={heightLevels} min={1} max={7} onChange={onHeightLevelsChange} disabled={disabled} />
         </label>
         <label>
           Ocean Levels
-          <NumberInput value={oceanLevels} min={1} max={20} onChange={onOceanLevelsChange} disabled={disabled} />
+          <NumberInput value={oceanLevels} min={1} max={3} onChange={onOceanLevelsChange} disabled={disabled} />
         </label>
       </div>
       <button type="button" className="primary-btn" onClick={onGenerate} disabled={disabled}>
