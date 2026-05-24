@@ -47,6 +47,7 @@ export interface SerializedWizardSnapshot
 export type WorkerAction =
   | "init"
   | "run_coastline"
+  | "set_coastline_from_image"
   | "draw_walls"
   | "clear_walls"
   | "set_wall_cells"

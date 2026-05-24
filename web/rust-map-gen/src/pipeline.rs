@@ -81,6 +81,28 @@ pub fn run_coastline(state: &mut WizardState) -> Vec<CoastlineFrame> {
     frames
 }
 
+pub fn set_coastline_from_image(
+    state: &mut WizardState,
+    data: Vec<i32>,
+    img_height: usize,
+    img_width: usize,
+) -> Result<(), String> {
+    let coastline = Matrix::new(img_height, img_width, data)?;
+
+    // Downscale to a small "randomized_matrix" so CC/resource placement validation works
+    let rm_rows = (img_height / 8).max(5);
+    let rm_cols = (img_width / 8).max(5);
+    let randomized = scale_matrix(&coastline, rm_rows, rm_cols);
+
+    state.height = img_height;
+    state.width = img_width;
+    state.randomized_matrix = Some(randomized);
+    state.coastline_height_map = Some(coastline);
+    state.wall_matrix = Some(Matrix::zeros(img_height, img_width));
+    state.completed_step = state.completed_step.max(WizardStep::Coastline as i32);
+    Ok(())
+}
+
 pub fn draw_walls(
     state: &mut WizardState,
     points: &[[i32; 2]],
@@ -472,6 +494,7 @@ pub fn run_place_cc_random(state: &mut WizardState) -> Result<(), String> {
     state.cc_positions = cc_positions.clone();
     state.cc_groups = vec![CcGroup {
         id: 101,
+        mirrored: true,
         positions: cc_positions,
     }];
     state.completed_step = state.completed_step.max(WizardStep::CommandCenters as i32);
@@ -560,6 +583,7 @@ pub fn run_place_cc_manual(
     state.cc_positions.extend(placed.clone());
     state.cc_groups.push(CcGroup {
         id: 0,
+        mirrored,
         positions: placed.clone(),
     });
     rebuild_cc_matrix(state);

@@ -276,6 +276,86 @@ button:disabled {
   transform: translateY(0);
 }
 
+.coast-mode-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.75rem;
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+
+.coast-mode-tabs .mode-tab {
+  flex: 1;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #334155;
+  background: #111827;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.coast-mode-tabs .mode-tab:first-child {
+  border-radius: 0.4rem 0 0 0.4rem;
+  border-right: none;
+}
+
+.coast-mode-tabs .mode-tab:last-child {
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+.coast-mode-tabs .mode-tab:hover:not(:disabled) {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.coast-mode-tabs .mode-tab.active {
+  background: #0c4a6e;
+  border-color: #0284c7;
+  color: #e2e8f0;
+}
+
+.image-file-input {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.7rem;
+  font-size: 0.82rem;
+}
+
+.image-info {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+  padding: 0.45rem 0.6rem;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.image-name {
+  color: #38bdf8;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.image-dims {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.image-info .ghost-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
 .coast-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

@@ -49,6 +49,19 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                     removed: None,
                 })
             }
+            "set_coastline_from_image" => {
+                apply_common_generation_params(&mut state, &params);
+                state.invalidate_from(WizardStep::Coastline);
+                let img_height = get_usize(&params, &["height"]).ok_or("Missing height")?;
+                let img_width = get_usize(&params, &["width"]).ok_or("Missing width")?;
+                let data = params
+                    .get("data")
+                    .and_then(Value::as_array)
+                    .map(|arr| arr.iter().filter_map(|v| v.as_i64().map(|n| n as i32)).collect::<Vec<_>>())
+                    .ok_or("Missing or invalid data array")?;
+                pipeline::set_coastline_from_image(&mut state, data, img_height, img_width)?;
+                Ok(snapshot_only(&state))
+            }
             "draw_walls" => {
                 let points = parse_points(&params, "points");
                 let value = get_i32(&params, &["value"]).unwrap_or(1);
@@ -136,6 +149,9 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                 Ok(snapshot_only(&state))
             }
             "place_cc_manual" => {
+                if let Some(m) = params.get("mirroring").and_then(Value::as_str) {
+                    state.mirroring = m.to_string();
+                }
                 let row = get_i32(&params, &["row"]).unwrap_or(-1);
                 let col = get_i32(&params, &["col"]).unwrap_or(-1);
                 let mirrored = get_bool(&params, &["mirrored"]).unwrap_or(true);
@@ -166,6 +182,9 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                 })
             }
             "place_cc_random" => {
+                if let Some(m) = params.get("mirroring").and_then(Value::as_str) {
+                    state.mirroring = m.to_string();
+                }
                 if let Some(players) = get_i32(&params, &["numPlayers", "num_command_centers"]) {
                     state.num_command_centers = players;
                 }
@@ -182,6 +201,9 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                 Ok(snapshot_only(&state))
             }
             "place_resource_manual" => {
+                if let Some(m) = params.get("mirroring").and_then(Value::as_str) {
+                    state.mirroring = m.to_string();
+                }
                 let row = get_i32(&params, &["row"]).unwrap_or(-1);
                 let col = get_i32(&params, &["col"]).unwrap_or(-1);
                 let mirrored = get_bool(&params, &["mirrored"]).unwrap_or(true);
@@ -212,6 +234,9 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                 })
             }
             "place_resource_random" => {
+                if let Some(m) = params.get("mirroring").and_then(Value::as_str) {
+                    state.mirroring = m.to_string();
+                }
                 if let Some(resources) = get_i32(&params, &["numResources", "num_resource_pulls"]) {
                     state.num_resource_pulls = resources;
                 }

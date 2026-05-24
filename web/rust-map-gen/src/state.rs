@@ -96,6 +96,7 @@ pub enum WizardStep {
 #[derive(Clone, Debug)]
 pub struct CcGroup {
     pub id: i32,
+    pub mirrored: bool,
     pub positions: Vec<(usize, usize)>,
 }
 

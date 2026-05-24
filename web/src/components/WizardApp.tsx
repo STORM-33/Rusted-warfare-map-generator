@@ -96,6 +96,8 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
   const [width, setWidth] = useState(160);
   const [mirroring, setMirroring] = useState<MirroringMode>("vertical");
   const [tileset, setTileset] = useState(5);
+  const [coastlineMode, setCoastlineMode] = useState<"grid" | "image">("grid");
+  const [imageName, setImageName] = useState<string | null>(null);
   const [heightLevels, setHeightLevels] = useState(7);
   const [oceanLevels, setOceanLevels] = useState(3);
   const [numPlayers, setNumPlayers] = useState(4);
@@ -297,6 +299,38 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     tileset,
     width,
   ]);
+
+  const handleImageLoad = useCallback(
+    async (data: Int32Array, imgWidth: number, imgHeight: number, name: string) => {
+      setImageName(name);
+      setHeight(imgHeight);
+      setWidth(imgWidth);
+      setMirroring("none");
+      try {
+        await runAction("Loading image coastline", "set_coastline_from_image", {
+          data: Array.from(data),
+          height: imgHeight,
+          width: imgWidth,
+          mirroring: "none",
+          tileset,
+          heightLevels,
+          oceanLevels,
+          numPlayers,
+          numResources,
+        });
+        markStepComplete(0);
+      } catch (err) {
+        setStatusText(`Image load failed: ${err instanceof Error ? err.message : "unknown"}`);
+        setImageName(null);
+      }
+    },
+    [runAction, tileset, heightLevels, oceanLevels, numPlayers, numResources, markStepComplete],
+  );
+
+  const handleImageClear = useCallback(() => {
+    setImageName(null);
+    setCoastlineMode("grid");
+  }, []);
 
   // Animation timer: advance through frames
   useEffect(() => {
@@ -563,7 +597,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
         const hasExisting = snapshot?.cc_positions.some(([r, c]) => r === row && c === col);
         const shouldRemove = isRightClick || hasExisting;
         const actionName = shouldRemove ? "remove_cc_manual" : "place_cc_manual";
-        void callAction(actionName, { row, col, mirrored: ccMirrored })
+        void callAction(actionName, { row, col, mirrored: ccMirrored, mirroring })
           .then((response) => {
             const newCount = response.snapshot?.cc_positions.length ?? 0;
             if (shouldRemove) {
@@ -584,7 +618,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
         const hasExisting = snapshot?.resource_positions.some(([r, c]) => r === row && c === col);
         const shouldRemove = isRightClick || hasExisting;
         const actionName = shouldRemove ? "remove_resource_manual" : "place_resource_manual";
-        void callAction(actionName, { row, col, mirrored: resourceMirrored })
+        void callAction(actionName, { row, col, mirrored: resourceMirrored, mirroring })
           .then((response) => {
             const newCount = response.snapshot?.resource_positions.length ?? 0;
             if (shouldRemove) {
@@ -603,7 +637,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           });
       }
     },
-    [callAction, ccManual, currentStep, markStepComplete, resourceManual, ccMirrored, resourceMirrored, snapshot?.cc_positions, snapshot?.resource_positions],
+    [callAction, ccManual, currentStep, markStepComplete, mirroring, resourceManual, ccMirrored, resourceMirrored, snapshot?.cc_positions, snapshot?.resource_positions],
   );
 
   const handleFinalize = useCallback(async () => {
@@ -727,6 +761,8 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
       setSelectedPolygonId(null);
       setSelectedEdgeIndex(null);
       setHillMode("brush");
+      setCoastlineMode("grid");
+      setImageName(null);
       resetWizard();
       setStatusText("App state reset for a new map.");
     } catch {
@@ -740,11 +776,13 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
     if (currentStep === 0) {
       return (
         <CoastlineStep
+          mode={coastlineMode}
           grid={grid}
           height={height}
           width={width}
           mirroring={mirroring}
           tileset={tileset}
+          imageName={imageName}
           disabled={busy || !ready}
           animating={animating}
           animationProgress={animationProgress}
@@ -754,6 +792,9 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           onMirroringChange={(value) => setMirroring(value as MirroringMode)}
           onTilesetChange={setTileset}
           onGenerate={handleGenerateCoastline}
+          onModeChange={setCoastlineMode}
+          onImageLoad={handleImageLoad}
+          onImageClear={handleImageClear}
         />
       );
     }
@@ -821,6 +862,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           onRandom={() =>
             void runAction("Placing random command centers", "place_cc_random", {
               numPlayers,
+              mirroring,
             }).then((response) => {
               markStepComplete(3);
               const count = (response as WorkerStepCompleteMessage).snapshot?.cc_positions.length ?? 0;
@@ -854,6 +896,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           onRandom={() =>
             void runAction("Placing random resources", "place_resource_random", {
               numResources,
+              mirroring,
             }).then((response) => {
               markStepComplete(4);
               const count = (response as WorkerStepCompleteMessage).snapshot?.resource_positions.length ?? 0;

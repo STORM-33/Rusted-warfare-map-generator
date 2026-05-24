@@ -643,11 +643,66 @@ pub(crate) fn rebuild_cc_matrix(state: &mut WizardState) {
         return;
     };
     units.data.fill(0);
-    let mut cc_number = 101i32;
-    for group in &state.cc_groups {
-        for (r, c) in group.positions.iter().copied() {
-            units.set(r, c, cc_number);
-            cc_number += 1;
+
+    // GID layout: 101-105 = Team A slots, 106-110 = Team B slots
+    // In-game player order interleaves: P1=101, P2=106, P3=102, P4=107, ...
+    // For mirrored groups: positions[0] → Team A slot, positions[1] → Team B slot (+5)
+    // For unmirrored groups: assign next available slot in team order
+    //
+    // Groups keep their assigned ID across removals so that deleting one CC
+    // doesn't renumber all the others. Only groups with id==0 (freshly placed)
+    // get a new ID.
+
+    // Collect already-assigned GIDs so we don't double-allocate
+    let mut used_gids: [bool; 10] = [false; 10]; // index 0-4 = GID 101-105, 5-9 = GID 106-110
+    for group in state.cc_groups.iter() {
+        if group.id >= 101 && group.id <= 110 {
+            let slot = (group.id - 101) as usize;
+            used_gids[slot] = true;
+            if group.mirrored && group.positions.len() > 1 && slot < 5 {
+                used_gids[slot + 5] = true;
+            }
+        }
+    }
+
+    // Assign IDs to any groups that don't have one yet (id == 0)
+    const TEAM_ORDER: [usize; 10] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9];
+    for group in state.cc_groups.iter_mut() {
+        if group.id != 0 {
+            continue;
+        }
+        if group.mirrored && group.positions.len() > 1 {
+            // Need a Team A slot where both A and B are free
+            for slot in 0..5 {
+                if !used_gids[slot] && !used_gids[slot + 5] {
+                    group.id = 101 + slot as i32;
+                    used_gids[slot] = true;
+                    used_gids[slot + 5] = true;
+                    break;
+                }
+            }
+        } else {
+            for &slot in &TEAM_ORDER {
+                if !used_gids[slot] {
+                    group.id = 101 + slot as i32;
+                    used_gids[slot] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Write GIDs into units matrix
+    for group in state.cc_groups.iter() {
+        if group.id == 0 {
+            continue;
+        }
+        for (pi, &(r, c)) in group.positions.iter().enumerate() {
+            if pi == 0 {
+                units.set(r, c, group.id);
+            } else {
+                units.set(r, c, group.id + 5);
+            }
         }
     }
 }
