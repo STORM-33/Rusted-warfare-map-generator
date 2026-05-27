@@ -1,6 +1,6 @@
 use crate::state::Matrix;
 
-use crate::tiles::{LARGE_ROCK_TILE_SET, TILE_ID_OFFSET};
+use crate::tiles::{CLIFF_TILE_SET, TILE_ID_OFFSET};
 
 
 
@@ -9,7 +9,7 @@ pub(crate) fn smooth_wall_tiles(wall_matrix: &Matrix) -> Matrix {
     let w = wall_matrix.cols;
     let mut cleaned = wall_matrix.clone();
     let mut result = Matrix::zeros(h, w);
-    let rock_first_gid = TILE_ID_OFFSET + 135;
+    let cliff_first_gid = TILE_ID_OFFSET + 135;
 
     // Iterative cleanup: remove wall tiles with unmappable patterns until stable
     let mut changed = true;
@@ -49,11 +49,11 @@ pub(crate) fn smooth_wall_tiles(wall_matrix: &Matrix) -> Matrix {
             let local_id = if idx == 0 {
                 wall_corner_tile(&cleaned, r, c)
             } else {
-                Some(LARGE_ROCK_TILE_SET[idx as usize + 1])
+                Some(CLIFF_TILE_SET[idx as usize + 1])
             };
             if let Some(id) = local_id {
                 if id >= 0 {
-                    result.set(r, c, rock_first_gid + id);
+                    result.set(r, c, cliff_first_gid + id);
                 }
             }
         }
@@ -70,31 +70,31 @@ fn wall_corner_tile(matrix: &Matrix, r: usize, c: usize) -> Option<i32> {
 
     if passable_count == 0 {
         // Fully surrounded — center tile
-        return Some(LARGE_ROCK_TILE_SET[1]);
+        return Some(CLIFF_TILE_SET[1]);
     }
 
     // Single corner — use the specific corner tile
     if passable_count == 1 {
         if tl == 1 {
-            return Some(LARGE_ROCK_TILE_SET[10]);
+            return Some(CLIFF_TILE_SET[10]);
         } else if tr == 1 {
-            return Some(LARGE_ROCK_TILE_SET[11]);
+            return Some(CLIFF_TILE_SET[11]);
         } else if bl == 1 {
-            return Some(LARGE_ROCK_TILE_SET[12]);
+            return Some(CLIFF_TILE_SET[12]);
         } else {
-            return Some(LARGE_ROCK_TILE_SET[13]);
+            return Some(CLIFF_TILE_SET[13]);
         }
     }
 
     // Multiple corners passable — pick the first one (best effort)
     if tl == 1 {
-        Some(LARGE_ROCK_TILE_SET[10])
+        Some(CLIFF_TILE_SET[10])
     } else if tr == 1 {
-        Some(LARGE_ROCK_TILE_SET[11])
+        Some(CLIFF_TILE_SET[11])
     } else if bl == 1 {
-        Some(LARGE_ROCK_TILE_SET[12])
+        Some(CLIFF_TILE_SET[12])
     } else {
-        Some(LARGE_ROCK_TILE_SET[13])
+        Some(CLIFF_TILE_SET[13])
     }
 }
 

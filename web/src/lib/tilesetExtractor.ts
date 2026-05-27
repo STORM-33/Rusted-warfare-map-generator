@@ -153,7 +153,7 @@ export async function extractTilesetsFromTmx(tmxXml: string) {
     }
     if (tileset.name === "AutoLight") {
       result.ground = tileset;
-    } else if (tileset.name === "large-rock") {
+    } else if (tileset.name === "cliff") {
       result.wall = tileset;
     } else if (tileset.name === "export_items") {
       result.items = tileset;

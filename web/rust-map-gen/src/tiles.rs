@@ -10,7 +10,7 @@ pub const STONE_SNOW: [i32; 14] = [46, 49, 21, 22, 23, 48, 50, 75, 76, 77, 102, 
 pub const SNOW_ICE: [i32; 14] = [49, 52, 24, 25, 26, 51, 53, 78, 79, 80, 105, 106, 132, 133];
 pub const DEEP_WATER_WATER: [i32; 14] = [28, 31, 3, 4, 5, 30, 32, 57, 58, 59, 84, 85, 111, 112];
 pub const OCEAN_DEEP_WATER: [i32; 14] = [83, 28, 0, 1, 2, 27, 29, 54, 55, 56, 81, 82, 108, 109];
-pub const LARGE_ROCK_TILE_SET: [i32; 14] = [-1, 4, 0, 1, 2, 3, 5, 6, 7, 8, 13, 12, 10, 9];
+pub const CLIFF_TILE_SET: [i32; 14] = [-1, 4, 0, 1, 2, 3, 5, 6, 7, 8, 13, 12, 10, 9];
 
 pub const TERRAIN_LEVELS: [(i32, [i32; 14]); 9] = [
     (-1, OCEAN_DEEP_WATER),

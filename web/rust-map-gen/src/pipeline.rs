@@ -482,21 +482,60 @@ pub fn run_place_cc_random(state: &mut WizardState) -> Result<(), String> {
         state.wall_matrix.as_ref(),
     )?;
 
+    // Build cc_groups from the units matrix by grouping GIDs into mirrored pairs.
+    // Team A GIDs 101-105 pair with Team B GIDs 106-110 (slot + 5).
     let mut cc_positions = Vec::new();
+    let mut gid_positions: Vec<(i32, usize, usize)> = Vec::new();
     for r in 0..units_matrix.rows {
         for c in 0..units_matrix.cols {
-            if units_matrix.get(r, c) > 0 {
+            let gid = units_matrix.get(r, c);
+            if gid > 0 {
                 cc_positions.push((r, c));
+                gid_positions.push((gid, r, c));
             }
         }
     }
+
+    let mirrored = state.mirroring != "none";
+    let mut groups: Vec<CcGroup> = Vec::new();
+    let mut used: std::collections::HashSet<i32> = std::collections::HashSet::new();
+
+    for &(gid, r, c) in &gid_positions {
+        if used.contains(&gid) {
+            continue;
+        }
+        let slot = (gid - 101) as usize;
+        if mirrored && slot < 5 {
+            let mut positions = vec![(r, c)];
+            used.insert(gid);
+            let partner_gid = gid + 5;
+            if let Some(&(_, pr, pc)) = gid_positions.iter().find(|(g, _, _)| *g == partner_gid) {
+                positions.push((pr, pc));
+                used.insert(partner_gid);
+            }
+            // For "both" mirroring, also grab the +1/+6 pair
+            if state.mirroring == "both" {
+                let next_a = gid + 1;
+                let next_b = gid + 6;
+                if let Some(&(_, nr, nc)) = gid_positions.iter().find(|(g, _, _)| *g == next_a) {
+                    positions.push((nr, nc));
+                    used.insert(next_a);
+                }
+                if let Some(&(_, nr, nc)) = gid_positions.iter().find(|(g, _, _)| *g == next_b) {
+                    positions.push((nr, nc));
+                    used.insert(next_b);
+                }
+            }
+            groups.push(CcGroup { id: gid, mirrored: true, positions });
+        } else {
+            used.insert(gid);
+            groups.push(CcGroup { id: gid, mirrored: false, positions: vec![(r, c)] });
+        }
+    }
+
     state.units_matrix = Some(units_matrix);
-    state.cc_positions = cc_positions.clone();
-    state.cc_groups = vec![CcGroup {
-        id: 101,
-        mirrored: true,
-        positions: cc_positions,
-    }];
+    state.cc_positions = cc_positions;
+    state.cc_groups = groups;
     state.completed_step = state.completed_step.max(WizardStep::CommandCenters as i32);
     Ok(())
 }

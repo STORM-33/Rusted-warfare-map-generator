@@ -122,19 +122,41 @@ fn mirror_command_centers(
     let scale_x = height_map_shape.1 as f64 / width as f64;
     let mut units = Matrix::zeros(height_map_shape.0, height_map_shape.1);
 
-    let mut cc_number = 101i32;
+    // RW player order interleaves teams: P1=101, P2=106, P3=102, P4=107, ...
+    // Team A slots: 101-105, Team B slots: 106-110
+    // Originals → Team A, mirrors → Team B
+    let mut slot = 0i32;
     for (y, x) in selected_positions {
         let sy = (*y as f64 * scale_y) as usize;
         let sx = (*x as f64 * scale_x) as usize;
-        units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), cc_number);
-        cc_number += 1;
+        units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 101 + slot);
 
         let mirrors = get_mirrors_for_mode(*y, *x, height, width, mirroring);
-        for (my, mx) in mirrors {
+        if mirroring == "both" && mirrors.len() == 3 {
+            // 4-way: (original, horiz) pair + (vert, both) pair
+            let (my, mx) = mirrors[0];
             let sy = (my as f64 * scale_y) as usize;
             let sx = (mx as f64 * scale_x) as usize;
-            units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), cc_number);
-            cc_number += 1;
+            units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 106 + slot);
+
+            let (my, mx) = mirrors[1];
+            let sy = (my as f64 * scale_y) as usize;
+            let sx = (mx as f64 * scale_x) as usize;
+            units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 101 + slot + 1);
+
+            let (my, mx) = mirrors[2];
+            let sy = (my as f64 * scale_y) as usize;
+            let sx = (mx as f64 * scale_x) as usize;
+            units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 106 + slot + 1);
+
+            slot += 2;
+        } else {
+            for (my, mx) in mirrors {
+                let sy = (my as f64 * scale_y) as usize;
+                let sx = (mx as f64 * scale_x) as usize;
+                units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 106 + slot);
+            }
+            slot += 1;
         }
     }
     units
@@ -661,6 +683,10 @@ pub(crate) fn rebuild_cc_matrix(state: &mut WizardState) {
             used_gids[slot] = true;
             if group.mirrored && group.positions.len() > 1 && slot < 5 {
                 used_gids[slot + 5] = true;
+                if group.positions.len() == 4 && slot + 1 < 5 {
+                    used_gids[slot + 1] = true;
+                    used_gids[slot + 6] = true;
+                }
             }
         }
     }
@@ -671,8 +697,22 @@ pub(crate) fn rebuild_cc_matrix(state: &mut WizardState) {
         if group.id != 0 {
             continue;
         }
-        if group.mirrored && group.positions.len() > 1 {
-            // Need a Team A slot where both A and B are free
+        if group.mirrored && group.positions.len() == 4 {
+            // 4-way: need 2 consecutive Team A slots + their Team B counterparts
+            for slot in 0..4 {
+                if !used_gids[slot] && !used_gids[slot + 1]
+                    && !used_gids[slot + 5] && !used_gids[slot + 6]
+                {
+                    group.id = 101 + slot as i32;
+                    used_gids[slot] = true;
+                    used_gids[slot + 1] = true;
+                    used_gids[slot + 5] = true;
+                    used_gids[slot + 6] = true;
+                    break;
+                }
+            }
+        } else if group.mirrored && group.positions.len() > 1 {
+            // 2-way: need one Team A slot + its Team B counterpart
             for slot in 0..5 {
                 if !used_gids[slot] && !used_gids[slot + 5] {
                     group.id = 101 + slot as i32;
@@ -698,11 +738,21 @@ pub(crate) fn rebuild_cc_matrix(state: &mut WizardState) {
             continue;
         }
         for (pi, &(r, c)) in group.positions.iter().enumerate() {
-            if pi == 0 {
-                units.set(r, c, group.id);
+            let gid = if !group.mirrored || group.positions.len() == 1 {
+                group.id
+            } else if group.positions.len() == 4 {
+                // 4-way ("both") mirroring: pairs (orig,horiz) + (vert,both)
+                match pi {
+                    0 => group.id,
+                    1 => group.id + 5,
+                    2 => group.id + 1,
+                    _ => group.id + 6,
+                }
             } else {
-                units.set(r, c, group.id + 5);
-            }
+                // 2-way mirroring: orig = Team A, mirror = Team B
+                if pi == 0 { group.id } else { group.id + 5 }
+            };
+            units.set(r, c, gid);
         }
     }
 }

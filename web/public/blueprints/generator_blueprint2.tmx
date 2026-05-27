@@ -415,23 +415,27 @@ BgRBBAQ0IAgiIKABQRABAQ0IgggIaEAQREBAA4IgAgIa+H8uH+9UTmN3RwAAAABJRU5ErkJggg==
     </tile>
     <tile id="43" terrain="-1,-1,-1,7">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="44" terrain="-1,-1,7,7">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="45" terrain="-1,-1,7,-1" />
     <tile id="53" terrain="-1,7,-1,7">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="54" terrain="7,7,7,7">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="55" terrain="7,-1,7,-1" />
@@ -2196,7 +2200,7 @@ l8wwNzYWL15s/3+Lt/lIIPKC6gAAAABJRU5ErkJggg==
     <tile id="79" terrain="9,9,8,8" />
     <tile id="80" terrain="9,8,8,8" />
   </tileset>
-  <tileset firstgid="336" name="large-rock" columns="3" tilecount="15" tileheight="20" tilewidth="20">
+  <tileset firstgid="336" name="cliff" columns="3" tilecount="15" tileheight="20" tilewidth="20">
     <properties>
       <property name="embedded_png">
 iVBORw0KGgoAAAANSUhEUgAAADwAAABkCAYAAADaIVPoAAAAAXNSR0IArs4c6QAAAARnQU1BAACx
@@ -2342,62 +2346,74 @@ CFVWVKT/ftxdukt36S7dpbt0kyTE/wN2Kp7YFkJ+mAAAAABJRU5ErkJggg==
     <image source="large-rock.png" width="60" height="100" trans="" />
     <tile id="0">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="1">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="2">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="3">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="5">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="6">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="7">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="8">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="9">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="10">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="12">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
     <tile id="13">
       <properties>
-        <property name="large-rock" value="" />
+        <property name="cliff" value="" />
+        <property name="large-cliff" value="" />
       </properties>
     </tile>
   </tileset>
