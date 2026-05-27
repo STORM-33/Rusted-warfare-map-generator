@@ -516,33 +516,23 @@ pub fn run_place_cc_manual(
     let Some(height_map) = state.height_map.clone() else {
         return Vec::new();
     };
-    let Some(randomized_matrix) = state.randomized_matrix.clone() else {
-        return Vec::new();
-    };
     let h = height_map.rows;
     let w = height_map.cols;
     if row >= h || col >= w {
         return Vec::new();
     }
 
-    let rm_h = randomized_matrix.rows;
-    let rm_w = randomized_matrix.cols;
-    let rm_row = row * rm_h / h;
-    let rm_col = col * rm_w / w;
-    if randomized_matrix.get(rm_row, rm_col) != 1 {
-        return Vec::new();
-    }
     if height_map.get(row, col) <= 0 {
         return Vec::new();
     }
-    
+
     let wall_check = state.wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
         || state.brush_wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
         || state.polygon_depth_matrix.as_ref().map(|m| m.get(row, col) > 0).unwrap_or(false);
     if wall_check {
         return Vec::new();
     }
-    
+
     if let Some(items_matrix) = &state.items_matrix {
         let cc_clearance = 2;
         if has_non_zero_in_radius(items_matrix, row, col, cc_clearance) {
@@ -555,13 +545,7 @@ pub fn run_place_cc_manual(
     } else {
         "none"
     };
-    let mirrored_rm = get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring);
-    let mut placed: Vec<(usize, usize)> = Vec::new();
-    for (mr, mc) in mirrored_rm {
-        let sr = ((mr * h) / rm_h).min(h - 1);
-        let sc = ((mc * w) / rm_w).min(w - 1);
-        placed.push((sr, sc));
-    }
+    let placed = get_mirrored_positions(row, col, h, w, mirroring);
 
     if state.units_matrix.is_none() {
         state.units_matrix = Some(Matrix::zeros(h, w));
@@ -721,33 +705,23 @@ pub fn run_place_resource_manual(
     let Some(height_map) = state.height_map.clone() else {
         return Vec::new();
     };
-    let Some(randomized_matrix) = state.randomized_matrix.clone() else {
-        return Vec::new();
-    };
     let h = height_map.rows;
     let w = height_map.cols;
     if row >= h || col >= w {
         return Vec::new();
     }
 
-    let rm_h = randomized_matrix.rows;
-    let rm_w = randomized_matrix.cols;
-    let rm_row = row * rm_h / h;
-    let rm_col = col * rm_w / w;
-    if randomized_matrix.get(rm_row, rm_col) != 1 {
-        return Vec::new();
-    }
     if height_map.get(row, col) <= 0 {
         return Vec::new();
     }
-    
+
     let wall_check = state.wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
         || state.brush_wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
         || state.polygon_depth_matrix.as_ref().map(|m| m.get(row, col) > 0).unwrap_or(false);
     if wall_check {
         return Vec::new();
     }
-    
+
     if let Some(units_matrix) = &state.units_matrix {
         if has_positive_in_radius(units_matrix, row, col, 4) {
             return Vec::new();
@@ -759,11 +733,9 @@ pub fn run_place_resource_manual(
     } else {
         "none"
     };
-    let mirrored_rm = get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring);
+    let all_positions = get_mirrored_positions(row, col, h, w, mirroring);
     let mut placed: Vec<(usize, usize)> = Vec::new();
-    for (mr, mc) in mirrored_rm {
-        let sr = ((mr * h) / rm_h).min(h - 1);
-        let sc = ((mc * w) / rm_w).min(w - 1);
+    for (sr, sc) in all_positions {
         let too_close = placed
             .iter()
             .any(|(pr, pc)| pr.abs_diff(sr) <= 3 && pc.abs_diff(sc) <= 3);
