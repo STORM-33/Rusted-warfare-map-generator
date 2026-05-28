@@ -1,7 +1,7 @@
 {
   "installCommand": "cd web && npm install --ignore-scripts",
   "buildCommand": "cd web && npm run build",
-  "outputDirectory": "web/out",
+  "outputDirectory": "web/.next",
   "headers": [
     {
       "source": "/(.*)",
