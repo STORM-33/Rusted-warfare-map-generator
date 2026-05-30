@@ -379,18 +379,22 @@ export const renderOverlay = (
         if (wallValue === 0) {
           continue;
         }
-        // Boundary = any neighbor is empty (treat wall + gap as one filled shape)
+        const absValue = Math.abs(wallValue);
+        const isGap = wallValue < 0;
+        // Boundary = any neighbor has a strictly lower absolute depth
         let isBoundary = false;
         for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
-          if (getWall(row + dr, col + dc) === 0) {
+          if (Math.abs(getWall(row + dr, col + dc)) < absValue) {
             isBoundary = true;
             break;
           }
         }
         if (!isBoundary) continue;
-        // Gap cells on the border show blue, wall cells show red
-        context.fillStyle =
-          wallValue === 2 ? "rgba(50,150,200,0.55)" : "rgba(200,50,50,0.55)";
+        if (isGap) continue;
+        const isBrushGap = snapshot.meta.hill_drawing_mode === "brush" && wallValue === 2;
+        context.fillStyle = isBrushGap
+          ? "rgba(50,150,200,0.55)"
+          : "rgba(200,50,50,0.55)";
         context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
       }
     }

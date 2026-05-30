@@ -87,7 +87,42 @@ pub fn set_coastline_from_image(
     img_height: usize,
     img_width: usize,
 ) -> Result<(), String> {
-    let coastline = Matrix::new(img_height, img_width, data)?;
+    let len = img_height * img_width;
+    if data.len() != len {
+        return Err(format!(
+            "Data length {} doesn't match {}x{}",
+            data.len(), img_height, img_width
+        ));
+    }
+
+    let mut coastline_data = Vec::with_capacity(len);
+    let mut depth_data = Vec::with_capacity(len);
+    let mut gap_data = Vec::with_capacity(len);
+    let mut has_hills = false;
+    let mut has_gaps = false;
+
+    for &v in &data {
+        if v == 0 {
+            coastline_data.push(0);
+            depth_data.push(0);
+            gap_data.push(0);
+        } else {
+            coastline_data.push(1);
+            let depth = (v.abs() - 1).min(9);
+            depth_data.push(depth);
+            if depth > 0 {
+                has_hills = true;
+            }
+            if v < 0 {
+                gap_data.push(1);
+                has_gaps = true;
+            } else {
+                gap_data.push(0);
+            }
+        }
+    }
+
+    let coastline = Matrix::new(img_height, img_width, coastline_data)?;
 
     // Downscale to a small "randomized_matrix" so CC/resource placement validation works
     let rm_rows = (img_height / 8).max(5);
@@ -100,6 +135,17 @@ pub fn set_coastline_from_image(
     state.coastline_height_map = Some(coastline);
     state.wall_matrix = Some(Matrix::zeros(img_height, img_width));
     state.completed_step = state.completed_step.max(WizardStep::Coastline as i32);
+
+    if has_hills {
+        state.polygon_depth_matrix = Some(Matrix::new(img_height, img_width, depth_data)?);
+        state.hill_drawing_mode = HillDrawingMode::Polygon;
+        state.image_imported_hills = true;
+        state.completed_step = state.completed_step.max(WizardStep::Hills as i32);
+        if has_gaps {
+            state.image_gap_mask = Some(Matrix::new(img_height, img_width, gap_data)?);
+        }
+    }
+
     Ok(())
 }
 
@@ -397,9 +443,11 @@ pub fn run_height_ocean(state: &mut WizardState, seed: Option<i32>) -> Result<()
             }
         }
         HillDrawingMode::Polygon => {
-            if let Some(depth_matrix) = &state.polygon_depth_matrix {
-                if depth_matrix.data.iter().any(|v| *v > 0) {
-                    height_map = apply_polygon_depth_elevation(&height_map, depth_matrix, state.num_height_levels);
+            if !state.image_imported_hills {
+                if let Some(depth_matrix) = &state.polygon_depth_matrix {
+                    if depth_matrix.data.iter().any(|v| *v > 0) {
+                        height_map = apply_polygon_depth_elevation(&height_map, depth_matrix, state.num_height_levels);
+                    }
                 }
             }
         }
@@ -950,10 +998,24 @@ pub fn run_finalize(
             }
         }
         HillDrawingMode::Polygon => {
-            if !state.polygons.is_empty() {
-                render_polygon_walls(&state.polygons, &state.mirrored_polygons,
-                    state.polygon_depth_matrix.as_ref().unwrap_or(&Matrix::zeros(h, w)),
-                    &mut items_matrix, &mut frames, collect_frames, &height_map, &id_matrix, &units_matrix);
+            let depth_ref = state.polygon_depth_matrix.as_ref();
+            let has_depth = depth_ref
+                .map(|m| m.data.iter().any(|v| *v > 0))
+                .unwrap_or(false);
+            if !state.polygons.is_empty() || has_depth {
+                let zero_matrix = Matrix::zeros(h, w);
+                render_polygon_walls(
+                    &state.polygons,
+                    &state.mirrored_polygons,
+                    depth_ref.unwrap_or(&zero_matrix),
+                    state.image_gap_mask.as_ref(),
+                    &mut items_matrix,
+                    &mut frames,
+                    collect_frames,
+                    &height_map,
+                    &id_matrix,
+                    &units_matrix,
+                );
             }
         }
     }
@@ -979,6 +1041,7 @@ fn render_polygon_walls(
     polygons: &[PolygonData],
     mirrored_polygons: &[PolygonData],
     depth_matrix: &Matrix,
+    image_gap_mask: Option<&Matrix>,
     items_matrix: &mut Matrix,
     frames: &mut Vec<QuickGenerateFrame>,
     collect_frames: bool,
@@ -998,6 +1061,17 @@ fn render_polygon_walls(
                 let [r0, c0] = poly.vertices[i];
                 let [r1, c1] = poly.vertices[(i + 1) % n];
                 for (r, c) in rasterize_line_cells(r0, c0, r1, c1) {
+                    all_gap_cells.insert((r, c));
+                }
+            }
+        }
+    }
+
+    // Merge image-imported gap cells
+    if let Some(gap_mask) = image_gap_mask {
+        for r in 0..h.min(gap_mask.rows) {
+            for c in 0..w.min(gap_mask.cols) {
+                if gap_mask.get(r, c) != 0 {
                     all_gap_cells.insert((r, c));
                 }
             }

@@ -36,7 +36,19 @@ const MIRROR_OPTIONS = [
   "both",
 ];
 
-function parseImageToCoastline(file: File): Promise<{ data: Int32Array; width: number; height: number }> {
+type ColorClass = "water" | "land" | "hill" | "gap";
+
+function classifyColor(avgR: number, avgG: number, avgB: number): ColorClass {
+  const lum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+  if (lum < 30) return "water";
+  if (lum > 225) return "land";
+  if (avgG > 60 && avgG > avgR * 1.5 && avgG > avgB * 1.5) return "gap";
+  return "hill";
+}
+
+const NEIGHBORS_4: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+function parseImageToTerrain(file: File): Promise<{ data: Int32Array; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -51,15 +63,177 @@ function parseImageToCoastline(file: File): Promise<{ data: Int32Array; width: n
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, img.width, img.height);
       const pixels = imageData.data;
-      const result = new Int32Array(img.width * img.height);
-      for (let i = 0; i < result.length; i++) {
-        const offset = i * 4;
-        const r = pixels[offset];
-        const g = pixels[offset + 1];
-        const b = pixels[offset + 2];
-        result[i] = (r > 240 && g > 240 && b > 240) ? 1 : 0;
+      const W = img.width;
+      const H = img.height;
+      const N = W * H;
+
+      // Step 1: Quantize colors and track per-bucket RGB sums
+      const colorGrid = new Uint16Array(N);
+      const bucketRSum = new Map<number, number>();
+      const bucketGSum = new Map<number, number>();
+      const bucketBSum = new Map<number, number>();
+      const bucketCount = new Map<number, number>();
+
+      for (let i = 0; i < N; i++) {
+        const off = i * 4;
+        const r = pixels[off], g = pixels[off + 1], b = pixels[off + 2];
+        const key = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
+        colorGrid[i] = key;
+        bucketRSum.set(key, (bucketRSum.get(key) ?? 0) + r);
+        bucketGSum.set(key, (bucketGSum.get(key) ?? 0) + g);
+        bucketBSum.set(key, (bucketBSum.get(key) ?? 0) + b);
+        bucketCount.set(key, (bucketCount.get(key) ?? 0) + 1);
       }
-      resolve({ data: result, width: img.width, height: img.height });
+
+      // Step 2: Classify each quantized color bucket
+      const bucketClass = new Map<number, ColorClass>();
+      for (const [key, count] of bucketCount) {
+        const avgR = (bucketRSum.get(key) ?? 0) / count;
+        const avgG = (bucketGSum.get(key) ?? 0) / count;
+        const avgB = (bucketBSum.get(key) ?? 0) / count;
+        bucketClass.set(key, classifyColor(avgR, avgG, avgB));
+      }
+
+      // Step 3: Track which pixels are originally gap
+      const isGapPixel = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        if (bucketClass.get(colorGrid[i]) === "gap") {
+          isGapPixel[i] = 1;
+        }
+      }
+
+      // Step 4: Noise filter — merge small connected components
+      // Skip gap pixels so they aren't absorbed into surrounding zones.
+      const visited = new Uint8Array(N);
+      const MIN_REGION = 16;
+
+      for (let startIdx = 0; startIdx < N; startIdx++) {
+        if (visited[startIdx] || isGapPixel[startIdx]) continue;
+        const thisColor = colorGrid[startIdx];
+        const component: number[] = [];
+        const neighborColors = new Map<number, number>();
+        const queue = [startIdx];
+        visited[startIdx] = 1;
+
+        while (queue.length > 0) {
+          const idx = queue.pop()!;
+          component.push(idx);
+          const row = (idx / W) | 0, col = idx % W;
+          for (const [dr, dc] of NEIGHBORS_4) {
+            const nr = row + dr, nc = col + dc;
+            if (nr < 0 || nr >= H || nc < 0 || nc >= W) continue;
+            const ni = nr * W + nc;
+            if (isGapPixel[ni]) continue;
+            if (visited[ni]) {
+              if (colorGrid[ni] !== thisColor) {
+                neighborColors.set(colorGrid[ni], (neighborColors.get(colorGrid[ni]) ?? 0) + 1);
+              }
+              continue;
+            }
+            if (colorGrid[ni] === thisColor) {
+              visited[ni] = 1;
+              queue.push(ni);
+            } else {
+              neighborColors.set(colorGrid[ni], (neighborColors.get(colorGrid[ni]) ?? 0) + 1);
+            }
+          }
+        }
+
+        if (component.length < MIN_REGION && neighborColors.size > 0) {
+          let bestNeighbor = thisColor, bestCount = 0;
+          for (const [nk, cnt] of neighborColors) {
+            if (cnt > bestCount) { bestCount = cnt; bestNeighbor = nk; }
+          }
+          for (const idx of component) {
+            colorGrid[idx] = bestNeighbor;
+          }
+        }
+      }
+
+      // Step 5: BFS depth assignment from land pixels.
+      // Gap pixels are skipped during BFS — their depth is fixed afterward.
+      const result = new Int32Array(N);
+      const depthAssigned = new Int8Array(N).fill(-1);
+      const bfsQueue: number[] = [];
+      const bfsDepth: number[] = [];
+
+      for (let i = 0; i < N; i++) {
+        if (isGapPixel[i]) continue;
+        const cls = bucketClass.get(colorGrid[i]) ?? "water";
+        if (cls === "water") {
+          result[i] = 0;
+          depthAssigned[i] = 0;
+        } else if (cls === "land") {
+          result[i] = 1;
+          depthAssigned[i] = 0;
+          bfsQueue.push(i);
+          bfsDepth.push(0);
+        }
+      }
+
+      let head = 0;
+      while (head < bfsQueue.length) {
+        const idx = bfsQueue[head];
+        const d = bfsDepth[head];
+        head++;
+        const row = (idx / W) | 0, col = idx % W;
+        const myColor = colorGrid[idx];
+
+        for (const [dr, dc] of NEIGHBORS_4) {
+          const nr = row + dr, nc = col + dc;
+          if (nr < 0 || nr >= H || nc < 0 || nc >= W) continue;
+          const ni = nr * W + nc;
+          if (depthAssigned[ni] >= 0 || isGapPixel[ni]) continue;
+
+          const neighborCls = bucketClass.get(colorGrid[ni]) ?? "water";
+          if (neighborCls === "water") continue;
+
+          const newDepth = Math.min(colorGrid[ni] !== myColor ? d + 1 : d, 9);
+          depthAssigned[ni] = newDepth;
+          result[ni] = newDepth + 1;
+          bfsQueue.push(ni);
+          bfsDepth.push(newDepth);
+        }
+      }
+
+      // Unvisited non-gap hill pixels (disconnected from land) → flat land
+      for (let i = 0; i < N; i++) {
+        if (!isGapPixel[i] && depthAssigned[i] < 0) {
+          result[i] = 1;
+        }
+      }
+
+      // Step 6: Fix gap pixel depths by propagating max depth from non-gap
+      // neighbors. Gap pixels should match the zone they sit on so they
+      // don't create false boundaries on neighboring non-gap cells.
+      for (let changed = true; changed; ) {
+        changed = false;
+        for (let i = 0; i < N; i++) {
+          if (!isGapPixel[i]) continue;
+          const r = (i / W) | 0, c = i % W;
+          let maxVal = result[i];
+          for (const [dr, dc] of NEIGHBORS_4) {
+            const nr = r + dr, nc = c + dc;
+            if (nr < 0 || nr >= H || nc < 0 || nc >= W) continue;
+            const ni = nr * W + nc;
+            const v = Math.abs(result[ni]);
+            if (v > maxVal) maxVal = v;
+          }
+          if (maxVal > result[i]) {
+            result[i] = maxVal;
+            changed = true;
+          }
+        }
+      }
+
+      // Step 7: Encode gap pixels as negative values
+      for (let i = 0; i < N; i++) {
+        if (isGapPixel[i] && result[i] > 0) {
+          result[i] = -result[i];
+        }
+      }
+
+      resolve({ data: result, width: W, height: H });
     };
     img.onerror = () => reject(new Error("Failed to load image"));
     img.src = URL.createObjectURL(file);
@@ -95,7 +269,7 @@ export function CoastlineStep({
       const file = e.target.files?.[0];
       if (!file) return;
       try {
-        const { data, width: w, height: h } = await parseImageToCoastline(file);
+        const { data, width: w, height: h } = await parseImageToTerrain(file);
         onImageLoad(data, w, h, file.name);
       } catch {
         // reset input so user can retry
@@ -196,7 +370,7 @@ export function CoastlineStep({
         </>
       ) : (
         <>
-          <p>Load an image: white pixels = land, everything else = water. Map dimensions are taken from the image.</p>
+          <p>Load an image: black = water, white = flat land, other colors = hill zones (nested colors create higher walls). Green = gap/break in walls. Map dimensions are taken from the image.</p>
           <input
             ref={fileInputRef}
             type="file"

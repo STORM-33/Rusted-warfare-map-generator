@@ -144,6 +144,10 @@ pub struct WizardState {
     pub mirrored_polygons: Vec<PolygonData>,
     pub polygons_undo: Vec<Vec<PolygonData>>,
     pub polygons_redo: Vec<Vec<PolygonData>>,
+
+    // ========== IMAGE IMPORT STATE ==========
+    pub image_imported_hills: bool,
+    pub image_gap_mask: Option<Matrix>,
 }
 
 impl Default for WizardState {
@@ -184,6 +188,8 @@ impl Default for WizardState {
             mirrored_polygons: Vec::new(),
             polygons_undo: Vec::new(),
             polygons_redo: Vec::new(),
+            image_imported_hills: false,
+            image_gap_mask: None,
         }
     }
 }
@@ -206,6 +212,8 @@ impl WizardState {
             self.mirrored_polygons.clear();
             self.polygons_undo.clear();
             self.polygons_redo.clear();
+            self.image_imported_hills = false;
+            self.image_gap_mask = None;
         }
         if step <= WizardStep::HeightOcean {
             self.perlin_seed = None;
@@ -261,7 +269,19 @@ impl WizardState {
                 self.brush_wall_matrix.as_ref().map(MatrixPayload::from)
             }
             HillDrawingMode::Polygon => {
-                self.polygon_depth_matrix.as_ref().map(MatrixPayload::from)
+                match (&self.polygon_depth_matrix, &self.image_gap_mask) {
+                    (Some(depth), Some(gap)) => {
+                        let mut display = depth.clone();
+                        for i in 0..display.data.len() {
+                            if i < gap.data.len() && gap.data[i] != 0 && display.data[i] > 0 {
+                                display.data[i] = -display.data[i];
+                            }
+                        }
+                        Some(MatrixPayload::from(&display))
+                    }
+                    (Some(depth), None) => Some(MatrixPayload::from(depth)),
+                    _ => None,
+                }
             }
         };
 

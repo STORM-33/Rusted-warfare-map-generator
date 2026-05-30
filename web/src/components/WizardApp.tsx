@@ -307,7 +307,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
       setWidth(imgWidth);
       setMirroring("none");
       try {
-        await runAction("Loading image coastline", "set_coastline_from_image", {
+        await runAction("Loading image terrain", "set_coastline_from_image", {
           data: Array.from(data),
           height: imgHeight,
           width: imgWidth,
@@ -319,12 +319,18 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
           numResources,
         });
         markStepComplete(0);
+
+        const hasHills = data.some((v) => Math.abs(v) >= 2);
+        if (hasHills) {
+          await handleModeChange("polygon");
+          markStepComplete(1);
+        }
       } catch (err) {
         setStatusText(`Image load failed: ${err instanceof Error ? err.message : "unknown"}`);
         setImageName(null);
       }
     },
-    [runAction, tileset, heightLevels, oceanLevels, numPlayers, numResources, markStepComplete],
+    [runAction, tileset, heightLevels, oceanLevels, numPlayers, numResources, markStepComplete, handleModeChange],
   );
 
   const handleImageClear = useCallback(() => {
