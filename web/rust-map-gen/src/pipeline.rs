@@ -486,13 +486,20 @@ pub fn run_place_cc_random(state: &mut WizardState) -> Result<(), String> {
         .items_matrix
         .clone()
         .unwrap_or_else(|| Matrix::zeros(height_map.rows, height_map.cols));
+    // Avoid the hill wall lines (interiors/gaps stay placeable). In polygon/image
+    // mode the real walls live in the depth matrix, so build a border mask.
+    let border = wall_border_matrix(state);
+    let wall_arg = match state.hill_drawing_mode {
+        HillDrawingMode::Polygon => border.as_ref(),
+        HillDrawingMode::Brush => state.wall_matrix.as_ref(),
+    };
     let units_matrix = add_command_centers(
         &randomized_matrix,
         state.num_command_centers,
         &state.mirroring,
         (height_map.rows, height_map.cols),
         Some(&items_matrix),
-        state.wall_matrix.as_ref(),
+        wall_arg,
     )?;
 
     // Build cc_groups from the units matrix by grouping GIDs into mirrored pairs.
@@ -578,10 +585,9 @@ pub fn run_place_cc_manual(
         return Vec::new();
     }
 
-    let wall_check = state.wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
-        || state.brush_wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
-        || state.polygon_depth_matrix.as_ref().map(|m| m.get(row, col) > 0).unwrap_or(false);
-    if wall_check {
+    // Block only the wall lines themselves (3x3 footprint); hill interiors and
+    // gaps are walkable high ground and remain placeable.
+    if footprint_hits_wall(state, row, col, 1) {
         return Vec::new();
     }
 
@@ -727,13 +733,20 @@ pub fn run_place_resources_random(state: &mut WizardState) {
         .clone()
         .unwrap_or_else(|| Matrix::fill(state.height, state.width, 1));
     let mut items_matrix = Matrix::zeros(height_map.rows, height_map.cols);
+    // Avoid the hill wall lines (interiors/gaps stay placeable). In polygon/image
+    // mode the real walls live in the depth matrix, so build a border mask.
+    let border = wall_border_matrix(state);
+    let wall_arg = match state.hill_drawing_mode {
+        HillDrawingMode::Polygon => border.as_ref(),
+        HillDrawingMode::Brush => state.wall_matrix.as_ref(),
+    };
     let resource_positions = add_resource_pulls(
         &randomized_matrix,
         state.num_resource_pulls.max(0) as usize,
         &state.mirroring,
         &height_map,
         &mut items_matrix,
-        state.wall_matrix.as_ref(),
+        wall_arg,
         state.units_matrix.as_ref(),
     );
     state.items_matrix = Some(items_matrix);
@@ -767,10 +780,9 @@ pub fn run_place_resource_manual(
         return Vec::new();
     }
 
-    let wall_check = state.wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
-        || state.brush_wall_matrix.as_ref().map(|m| m.get(row, col) == 1).unwrap_or(false)
-        || state.polygon_depth_matrix.as_ref().map(|m| m.get(row, col) > 0).unwrap_or(false);
-    if wall_check {
+    // Block only the wall lines themselves (3x3 footprint); hill interiors and
+    // gaps are walkable high ground and remain placeable.
+    if footprint_hits_wall(state, row, col, 1) {
         return Vec::new();
     }
 
@@ -1120,6 +1132,94 @@ fn is_depth_boundary(depth_matrix: &Matrix, r: usize, c: usize, depth: i32) -> b
         }
     }
     false
+}
+
+/// True if a depth cell holds an actual hill wall tile: a non-gap depth boundary.
+/// The map perimeter is NOT a wall — off-map neighbors are ignored.
+fn depth_cell_is_wall(depth: &Matrix, gap: Option<&Matrix>, r: usize, c: usize) -> bool {
+    let d = depth.get(r, c);
+    if d <= 0 {
+        return false;
+    }
+    if let Some(g) = gap {
+        if g.same_shape(depth.rows, depth.cols) && g.get(r, c) != 0 {
+            return false; // gaps are walkable breaks, not walls
+        }
+    }
+    const DIRS: [(isize, isize); 8] = [
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+    ];
+    for (dr, dc) in DIRS {
+        let nr = r as isize + dr;
+        let nc = c as isize + dc;
+        if nr < 0 || nc < 0 || nr >= depth.rows as isize || nc >= depth.cols as isize {
+            continue; // map edge is not a wall
+        }
+        if depth.get(nr as usize, nc as usize) < d {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if (r, c) holds an impassable hill wall tile under the active mode.
+/// Hill interiors, gaps, and flat land are walkable (placeable); only the wall
+/// lines themselves block placement.
+fn is_wall_tile_cell(state: &WizardState, r: usize, c: usize) -> bool {
+    if let Some(m) = &state.brush_wall_matrix {
+        if r < m.rows && c < m.cols && m.get(r, c) == 1 {
+            return true;
+        }
+    }
+    if let Some(m) = &state.wall_matrix {
+        if r < m.rows && c < m.cols && m.get(r, c) == 1 {
+            return true;
+        }
+    }
+    if let Some(depth) = &state.polygon_depth_matrix {
+        if r < depth.rows
+            && c < depth.cols
+            && depth_cell_is_wall(depth, state.image_gap_mask.as_ref(), r, c)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if a placement footprint (square of the given radius) centered at (r, c)
+/// overlaps any wall tile. Resources/CCs occupy a 3x3 area, so radius 1.
+fn footprint_hits_wall(state: &WizardState, r: usize, c: usize, radius: usize) -> bool {
+    for rr in r.saturating_sub(radius)..=(r + radius) {
+        for cc in c.saturating_sub(radius)..=(c + radius) {
+            if is_wall_tile_cell(state, rr, cc) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Build a matrix marking wall tile cells (1) so random placement can avoid them
+/// via its existing 3x3 footprint checks. None when there is no depth data.
+fn wall_border_matrix(state: &WizardState) -> Option<Matrix> {
+    let depth = state.polygon_depth_matrix.as_ref()?;
+    let mut m = Matrix::zeros(depth.rows, depth.cols);
+    for r in 0..depth.rows {
+        for c in 0..depth.cols {
+            if depth_cell_is_wall(depth, state.image_gap_mask.as_ref(), r, c) {
+                m.set(r, c, 1);
+            }
+        }
+    }
+    Some(m)
 }
 
 pub fn write_tmx(state: &WizardState, blueprint_xml: &str) -> Result<Vec<u8>, String> {

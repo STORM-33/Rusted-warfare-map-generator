@@ -381,10 +381,14 @@ export const renderOverlay = (
         }
         const absValue = Math.abs(wallValue);
         const isGap = wallValue < 0;
-        // Boundary = any neighbor has a strictly lower absolute depth
+        // Boundary = any in-bounds neighbor has a strictly lower absolute depth.
+        // Off-map neighbors are ignored: the map edge isn't a wall.
         let isBoundary = false;
         for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
-          if (Math.abs(getWall(row + dr, col + dc)) < absValue) {
+          const nr = row + dr;
+          const nc = col + dc;
+          if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+          if (Math.abs(getMatrixValue(wallMatrix, nr, nc)) < absValue) {
             isBoundary = true;
             break;
           }
