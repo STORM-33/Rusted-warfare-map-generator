@@ -100,6 +100,7 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
   const [imageName, setImageName] = useState<string | null>(null);
   const [heightLevels, setHeightLevels] = useState(7);
   const [oceanLevels, setOceanLevels] = useState(3);
+  const [wallMagnetism, setWallMagnetism] = useState(0);
   const [numPlayers, setNumPlayers] = useState(4);
   const [numResources, setNumResources] = useState(12);
   const [busy, setBusy] = useState(false);
@@ -842,13 +843,16 @@ export function WizardApp({ mapEngine }: { mapEngine: UseMapEngineResult }) {
         <HeightOceanStep
           heightLevels={heightLevels}
           oceanLevels={oceanLevels}
+          wallMagnetism={wallMagnetism}
           disabled={busy || !ready}
           onHeightLevelsChange={setHeightLevels}
           onOceanLevelsChange={setOceanLevels}
+          onWallMagnetismChange={setWallMagnetism}
           onGenerate={() =>
             void runAction("Generating height/ocean", "run_height_ocean", {
               heightLevels,
               oceanLevels,
+              wallMagnetism,
             }).then(() => markStepComplete(2))
           }
         />

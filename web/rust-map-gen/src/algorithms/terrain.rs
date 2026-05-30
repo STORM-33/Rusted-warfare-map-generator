@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use crate::state::Matrix;
 
-const WALL_INFLUENCE_RADIUS: f64 = 12.0;
-const WALL_BORDER_BOOST: i32 = 2;
 const MAX_TERRAIN_LEVEL: i32 = 7;
+// Magnetism pull radius scales with map size: max(MIN, min(rows,cols) / DIVISOR).
+const MAGNETISM_RADIUS_DIVISOR: f64 = 16.0;
+const MAGNETISM_MIN_RADIUS: f64 = 6.0;
 
 const CARDINAL_DIRS: [(isize, isize); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
 const EIGHT_DIRS: [(isize, isize); 8] = [
@@ -83,128 +84,108 @@ pub(crate) fn generate_level(
     new_map
 }
 
-pub(crate) fn bias_terrain_near_walls(
+/// Pull terrain height-level transitions toward wall lines.
+///
+/// Rather than flattening regions, this blends each land cell's Perlin level toward
+/// the target level of its depth zone, weighted by proximity to the nearest wall
+/// (depth boundary). Near a wall the pull is strong, so the step between two zones'
+/// targets lands right on the wall; far from walls the weight fades to zero and the
+/// original Perlin texture is preserved. `strength` (0..1) scales the whole effect;
+/// 0 is a no-op.
+pub(crate) fn magnetize_terrain(
     height_map: &Matrix,
-    wall_matrix: &Matrix,
+    depth_matrix: &Matrix,
+    strength: f64,
     num_height_levels: i32,
 ) -> Matrix {
     let rows = height_map.rows;
     let cols = height_map.cols;
     let mut result = height_map.clone();
-    let max_target = num_height_levels.clamp(1, MAX_TERRAIN_LEVEL);
-    let wall_mask: Vec<bool> = wall_matrix.data.iter().map(|v| *v == 1).collect();
-    let outside_mask = outside_non_wall_mask(&wall_mask, rows, cols);
-    let interior_mask: Vec<bool> = wall_mask
-        .iter()
-        .zip(outside_mask.iter())
-        .map(|(is_wall, is_outside)| !is_wall && !is_outside)
-        .collect();
-
-    let mut wall_targets = vec![0_i32; rows * cols];
-    let mut visited = vec![false; rows * cols];
-
-    for r in 0..rows {
-        for c in 0..cols {
-            let i = idx(r, c, cols);
-            if !interior_mask[i] || visited[i] {
-                continue;
-            }
-
-            let mut queue = VecDeque::new();
-            let mut component = Vec::new();
-            visited[i] = true;
-            queue.push_back((r, c));
-
-            while let Some((cr, cc)) = queue.pop_front() {
-                component.push((cr, cc));
-                for (dr, dc) in CARDINAL_DIRS {
-                    let nr = cr as isize + dr;
-                    let nc = cc as isize + dc;
-                    if nr < 0 || nc < 0 || nr >= rows as isize || nc >= cols as isize {
-                        continue;
-                    }
-                    let nr = nr as usize;
-                    let nc = nc as usize;
-                    let ni = idx(nr, nc, cols);
-                    if interior_mask[ni] && !visited[ni] {
-                        visited[ni] = true;
-                        queue.push_back((nr, nc));
-                    }
-                }
-            }
-
-            let mut sum = 0_i64;
-            let mut count = 0_i64;
-            for (cr, cc) in &component {
-                let current = height_map.get(*cr, *cc);
-                if current > 0 {
-                    sum += current as i64;
-                    count += 1;
-                }
-            }
-            if count == 0 {
-                continue;
-            }
-
-            let border_height =
-                ((sum as f64 / count as f64) + WALL_BORDER_BOOST as f64).round() as i32;
-            let border_height = border_height.clamp(1, max_target);
-
-            for (cr, cc) in &component {
-                let current = height_map.get(*cr, *cc);
-                if current > 0 && current < border_height {
-                    result.set(*cr, *cc, border_height);
-                }
-            }
-
-            for (cr, cc) in &component {
-                for (dr, dc) in EIGHT_DIRS {
-                    let nr = *cr as isize + dr;
-                    let nc = *cc as isize + dc;
-                    if nr < 0 || nc < 0 || nr >= rows as isize || nc >= cols as isize {
-                        continue;
-                    }
-                    let ni = idx(nr as usize, nc as usize, cols);
-                    if wall_mask[ni] {
-                        wall_targets[ni] = wall_targets[ni].max(border_height);
-                    }
-                }
-            }
-        }
-    }
-
-    if !wall_targets.iter().any(|v| *v > 0) {
+    if strength <= 0.0 || rows == 0 || cols == 0 {
         return result;
     }
 
-    let (dist, nearest_target) = distance_and_target_from_sources(&wall_targets, rows, cols);
+    let max_depth = depth_matrix.data.iter().copied().max().unwrap_or(0).min(9);
+    if max_depth <= 0 {
+        return result;
+    }
+
+    let max_target = num_height_levels.clamp(2, MAX_TERRAIN_LEVEL);
+
+    // depth -> target land level. depth 0 (flat land) targets level 1.
+    let base_level = 2;
+    let available_range = max_target - base_level;
+    let mut depth_to_level = [1_i32; 10];
+    for d in 1..=max_depth {
+        let ratio = (d - 1) as f64 / (max_depth as f64).max(1.0);
+        let level = base_level + (ratio * available_range as f64).round() as i32;
+        depth_to_level[d as usize] = level.clamp(base_level, max_target);
+    }
+    // Ensure nested rings step strictly upward.
+    for d in 2..=max_depth as usize {
+        if depth_to_level[d] <= depth_to_level[d - 1] {
+            depth_to_level[d] = (depth_to_level[d - 1] + 1).min(max_target);
+        }
+    }
+
+    // Boundary = a cell whose depth differs from any 8-neighbor (the wall lines).
+    let mut boundary = vec![false; rows * cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            let d = depth_matrix.get(r, c);
+            let mut is_boundary = false;
+            for (dr, dc) in EIGHT_DIRS {
+                let nr = r as isize + dr;
+                let nc = c as isize + dc;
+                if nr < 0 || nc < 0 || nr >= rows as isize || nc >= cols as isize {
+                    continue;
+                }
+                if depth_matrix.get(nr as usize, nc as usize) != d {
+                    is_boundary = true;
+                    break;
+                }
+            }
+            boundary[idx(r, c, cols)] = is_boundary;
+        }
+    }
+    if !boundary.iter().any(|b| *b) {
+        return result;
+    }
+
+    let dist = distance_to_true(&boundary, rows, cols);
+    let radius = (rows.min(cols) as f64 / MAGNETISM_RADIUS_DIVISOR).max(MAGNETISM_MIN_RADIUS);
+
     for r in 0..rows {
         for c in 0..cols {
             let i = idx(r, c, cols);
-            if interior_mask[i] {
+            let base = height_map.get(r, c);
+            if base <= 0 {
+                continue; // leave water and ocean untouched
+            }
+            let falloff = (1.0 - dist[i] as f64 / radius).clamp(0.0, 1.0);
+            let weight = strength * falloff;
+            if weight <= 0.0 {
                 continue;
             }
-            let base_height = height_map.get(r, c);
-            if base_height <= 0 {
-                continue;
-            }
-            let target = nearest_target[i];
-            if target <= 0 {
-                continue;
-            }
-
-            let influence = (1.0 - dist[i] as f64 / WALL_INFLUENCE_RADIUS).clamp(0.0, 1.0);
-            if influence <= 0.0 {
-                continue;
-            }
-            let boosted =
-                (base_height as f64 + influence * (target as f64 - base_height as f64)).round()
-                    as i32;
-            result.set(r, c, boosted.clamp(base_height, max_target));
+            let depth = depth_matrix.get(r, c).clamp(0, 9) as usize;
+            let target = depth_to_level[depth];
+            let blended = base as f64 * (1.0 - weight) + target as f64 * weight;
+            result.set(r, c, (blended.round() as i32).clamp(1, max_target));
         }
     }
 
     result
+}
+
+/// Build a pseudo depth field for brush walls so `magnetize_terrain` can treat them
+/// like a single-ring polygon: 1 for wall cells and the area they enclose, 0 outside.
+pub(crate) fn brush_interior_depth(wall_matrix: &Matrix) -> Matrix {
+    let rows = wall_matrix.rows;
+    let cols = wall_matrix.cols;
+    let wall_mask: Vec<bool> = wall_matrix.data.iter().map(|v| *v == 1).collect();
+    let outside = outside_non_wall_mask(&wall_mask, rows, cols);
+    let data = outside.iter().map(|o| if *o { 0 } else { 1 }).collect();
+    Matrix::new(rows, cols, data).unwrap_or_else(|_| Matrix::zeros(rows, cols))
 }
 
 pub(crate) fn enforce_transition_safety(height_map: &mut Matrix, max_height_level: i32) {
@@ -297,50 +278,6 @@ fn outside_non_wall_mask(wall_mask: &[bool], rows: usize, cols: usize) -> Vec<bo
     outside
 }
 
-fn distance_and_target_from_sources(
-    source_target: &[i32],
-    rows: usize,
-    cols: usize,
-) -> (Vec<i32>, Vec<i32>) {
-    let mut dist = vec![i32::MAX / 4; rows * cols];
-    let mut target = vec![0_i32; rows * cols];
-    let mut queue = VecDeque::new();
-
-    for r in 0..rows {
-        for c in 0..cols {
-            let i = idx(r, c, cols);
-            if source_target[i] > 0 {
-                dist[i] = 0;
-                target[i] = source_target[i];
-                queue.push_back((r, c));
-            }
-        }
-    }
-    if queue.is_empty() {
-        return (dist, target);
-    }
-    while let Some((r, c)) = queue.pop_front() {
-        let i = idx(r, c, cols);
-        let current_dist = dist[i];
-        for (dr, dc) in EIGHT_DIRS {
-            let nr = r as isize + dr;
-            let nc = c as isize + dc;
-            if nr < 0 || nc < 0 || nr >= rows as isize || nc >= cols as isize {
-                continue;
-            }
-            let nr = nr as usize;
-            let nc = nc as usize;
-            let ni = idx(nr, nc, cols);
-            if current_dist + 1 < dist[ni] {
-                dist[ni] = current_dist + 1;
-                target[ni] = target[i];
-                queue.push_back((nr, nc));
-            }
-        }
-    }
-    (dist, target)
-}
-
 fn distance_to_true(mask: &[bool], rows: usize, cols: usize) -> Vec<i32> {
     let mut dist = vec![i32::MAX / 4; rows * cols];
     let mut queue = VecDeque::new();
@@ -392,7 +329,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enclosed_walls_raise_interior_floor_and_keep_water() {
+    fn magnetism_zero_strength_is_noop() {
+        let height_map = Matrix::from_rows(vec![
+            vec![1, 2, 3, 2, 1],
+            vec![1, 2, 3, 2, 1],
+            vec![1, 2, 3, 2, 1],
+        ])
+        .expect("valid height map");
+        let depth_matrix = Matrix::from_rows(vec![
+            vec![0, 0, 1, 0, 0],
+            vec![0, 1, 1, 1, 0],
+            vec![0, 0, 1, 0, 0],
+        ])
+        .expect("valid depth matrix");
+
+        let result = magnetize_terrain(&height_map, &depth_matrix, 0.0, 7);
+        assert_eq!(result, height_map);
+    }
+
+    #[test]
+    fn magnetism_pulls_wall_cells_toward_zone_target_and_keeps_water() {
+        // A single hill ring (depth 1) surrounded by flat land, with one water cell.
         let height_map = Matrix::from_rows(vec![
             vec![1, 1, 1, 1, 1],
             vec![0, 1, 1, 1, 1],
@@ -401,19 +358,20 @@ mod tests {
             vec![1, 1, 1, 1, 1],
         ])
         .expect("valid height map");
-        let wall_matrix = Matrix::from_rows(vec![
+        let depth_matrix = Matrix::from_rows(vec![
             vec![0, 0, 0, 0, 0],
             vec![0, 1, 1, 1, 0],
-            vec![0, 1, 0, 1, 0],
+            vec![0, 1, 1, 1, 0],
             vec![0, 1, 1, 1, 0],
             vec![0, 0, 0, 0, 0],
         ])
-        .expect("valid wall matrix");
+        .expect("valid depth matrix");
 
-        let result = bias_terrain_near_walls(&height_map, &wall_matrix, 7);
+        let result = magnetize_terrain(&height_map, &depth_matrix, 1.0, 7);
 
-        assert_eq!(result.get(2, 2), 3);
-        assert_eq!(result.get(1, 1), 3);
+        // Depth-1 cells get pulled up above flat land.
+        assert!(result.get(2, 2) > 1);
+        // Water cell stays water.
         assert_eq!(result.get(1, 0), 0);
     }
 

@@ -12,7 +12,8 @@ use crate::algorithms::placement::{
 };
 use crate::algorithms::smoothing::{smooth_terrain_tiles, smooth_wall_tiles};
 use crate::algorithms::terrain::{
-    bias_terrain_near_walls, enforce_transition_safety, generate_level, wall_protection_mask,
+    brush_interior_depth, enforce_transition_safety, generate_level, magnetize_terrain,
+    wall_protection_mask,
 };
 use crate::algorithms::tmx::write_tmx as write_tmx_impl;
 use crate::state::{
@@ -139,7 +140,6 @@ pub fn set_coastline_from_image(
     if has_hills {
         state.polygon_depth_matrix = Some(Matrix::new(img_height, img_width, depth_data)?);
         state.hill_drawing_mode = HillDrawingMode::Polygon;
-        state.image_imported_hills = true;
         state.completed_step = state.completed_step.max(WizardStep::Hills as i32);
         if has_gaps {
             state.image_gap_mask = Some(Matrix::new(img_height, img_width, gap_data)?);
@@ -433,20 +433,33 @@ pub fn run_height_ocean(state: &mut WizardState, seed: Option<i32>) -> Result<()
         height_map = generate_level(&height_map, &perlin_map, "ocean", level, perlin_value, 3, 4);
     }
 
-    // Apply elevation based on active mode
-    match state.hill_drawing_mode {
-        HillDrawingMode::Brush => {
-            if let Some(wall_matrix) = &state.brush_wall_matrix {
-                if wall_matrix.data.iter().any(|v| *v == 1) {
-                    height_map = bias_terrain_near_walls(&height_map, wall_matrix, state.num_height_levels);
+    // Wall magnetism: pull terrain level transitions toward walls. 0 = no-op
+    // (walls and terrain stay independent), 100 = transitions snap onto walls.
+    let strength = (state.wall_magnetism as f64 / 100.0).clamp(0.0, 1.0);
+    if strength > 0.0 {
+        match state.hill_drawing_mode {
+            HillDrawingMode::Brush => {
+                if let Some(wall_matrix) = &state.brush_wall_matrix {
+                    if wall_matrix.data.iter().any(|v| *v == 1) {
+                        let depth = brush_interior_depth(wall_matrix);
+                        height_map = magnetize_terrain(
+                            &height_map,
+                            &depth,
+                            strength,
+                            state.num_height_levels,
+                        );
+                    }
                 }
             }
-        }
-        HillDrawingMode::Polygon => {
-            if !state.image_imported_hills {
+            HillDrawingMode::Polygon => {
                 if let Some(depth_matrix) = &state.polygon_depth_matrix {
                     if depth_matrix.data.iter().any(|v| *v > 0) {
-                        height_map = apply_polygon_depth_elevation(&height_map, depth_matrix, state.num_height_levels);
+                        height_map = magnetize_terrain(
+                            &height_map,
+                            depth_matrix,
+                            strength,
+                            state.num_height_levels,
+                        );
                     }
                 }
             }
@@ -458,54 +471,6 @@ pub fn run_height_ocean(state: &mut WizardState, seed: Option<i32>) -> Result<()
     state.height_map = Some(height_map);
     state.completed_step = state.completed_step.max(WizardStep::HeightOcean as i32);
     Ok(())
-}
-
-/// New elevation function for polygon depth-based terrain
-fn apply_polygon_depth_elevation(
-    height_map: &Matrix,
-    depth_matrix: &Matrix,
-    num_height_levels: i32,
-) -> Matrix {
-    let mut result = height_map.clone();
-    let max_depth = depth_matrix.data.iter().copied().max().unwrap_or(0).min(9);
-    let max_target = num_height_levels.clamp(2, 7);
-    
-    // Pre-compute target level for each possible depth (1-9)
-    let base_level = 2;
-    let available_range = max_target - base_level;
-    
-    let mut depth_to_level = [0i32; 10];
-    for d in 1..=max_depth {
-        let ratio = (d - 1) as f32 / (max_depth as f32).max(1.0);
-        let level = base_level + (ratio * available_range as f32).round() as i32;
-        depth_to_level[d as usize] = level.min(max_target).max(base_level);
-    }
-    
-    // Ensure consecutive depths have different levels
-    for d in 2..=max_depth {
-        if depth_to_level[d as usize] <= depth_to_level[(d - 1) as usize] {
-            depth_to_level[d as usize] = depth_to_level[(d - 1) as usize] + 1;
-            if depth_to_level[d as usize] > max_target {
-                depth_to_level[d as usize] = max_target;
-            }
-        }
-    }
-    
-    // Apply elevation: each cell gets the level corresponding to its depth
-    for r in 0..height_map.rows {
-        for c in 0..height_map.cols {
-            let depth = depth_matrix.get(r, c);
-            if depth > 0 {
-                let target_level = depth_to_level[depth as usize];
-                let current = result.get(r, c);
-                if current > 0 && current < target_level {
-                    result.set(r, c, target_level);
-                }
-            }
-        }
-    }
-
-    result
 }
 
 pub fn run_place_cc_random(state: &mut WizardState) -> Result<(), String> {

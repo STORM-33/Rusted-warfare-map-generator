@@ -5,18 +5,22 @@ import { NumberInput } from "@/components/NumberInput";
 type HeightOceanStepProps = {
   heightLevels: number;
   oceanLevels: number;
+  wallMagnetism: number;
   disabled?: boolean;
   onHeightLevelsChange: (value: number) => void;
   onOceanLevelsChange: (value: number) => void;
+  onWallMagnetismChange: (value: number) => void;
   onGenerate: () => void;
 };
 
 export function HeightOceanStep({
   heightLevels,
   oceanLevels,
+  wallMagnetism,
   disabled,
   onHeightLevelsChange,
   onOceanLevelsChange,
+  onWallMagnetismChange,
   onGenerate,
 }: HeightOceanStepProps) {
   return (
@@ -33,6 +37,24 @@ export function HeightOceanStep({
           <NumberInput value={oceanLevels} min={1} max={3} onChange={onOceanLevelsChange} disabled={disabled} />
         </label>
       </div>
+      <label className="slider-field">
+        <span className="slider-label">
+          Wall Magnetism
+          <span className="slider-value">{wallMagnetism}</span>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={wallMagnetism}
+          onChange={(event) => onWallMagnetismChange(Number(event.target.value))}
+          disabled={disabled}
+        />
+        <span className="slider-hint">
+          0 = terrain ignores walls; higher pulls level changes onto wall lines.
+        </span>
+      </label>
       <button type="button" className="primary-btn" onClick={onGenerate} disabled={disabled}>
         Generate Height & Ocean
       </button>

@@ -27,6 +27,7 @@ export interface WizardSnapshotMeta {
   num_ocean_levels: number;
   num_command_centers: number;
   num_resource_pulls: number;
+  wall_magnetism: number;
   completed_step: number;
   current_step: number;
   hill_drawing_mode: HillDrawingMode;

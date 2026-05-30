@@ -111,6 +111,9 @@ pub struct WizardState {
     pub num_ocean_levels: i32,
     pub num_command_centers: i32,
     pub num_resource_pulls: i32,
+    // Wall magnetism strength (0..100): how strongly terrain level transitions are
+    // pulled toward hill walls on the Height/Ocean step. 0 = independent (default).
+    pub wall_magnetism: i32,
     pub randomized_matrix: Option<Matrix>,
     pub coastline_height_map: Option<Matrix>,
     // Legacy wall_matrix - kept for compatibility, but prefer brush_wall_matrix
@@ -146,7 +149,6 @@ pub struct WizardState {
     pub polygons_redo: Vec<Vec<PolygonData>>,
 
     // ========== IMAGE IMPORT STATE ==========
-    pub image_imported_hills: bool,
     pub image_gap_mask: Option<Matrix>,
 }
 
@@ -162,6 +164,7 @@ impl Default for WizardState {
             num_ocean_levels: 3,
             num_command_centers: 4,
             num_resource_pulls: 12,
+            wall_magnetism: 0,
             randomized_matrix: None,
             coastline_height_map: None,
             wall_matrix: None,
@@ -188,7 +191,6 @@ impl Default for WizardState {
             mirrored_polygons: Vec::new(),
             polygons_undo: Vec::new(),
             polygons_redo: Vec::new(),
-            image_imported_hills: false,
             image_gap_mask: None,
         }
     }
@@ -212,7 +214,6 @@ impl WizardState {
             self.mirrored_polygons.clear();
             self.polygons_undo.clear();
             self.polygons_redo.clear();
-            self.image_imported_hills = false;
             self.image_gap_mask = None;
         }
         if step <= WizardStep::HeightOcean {
@@ -295,6 +296,7 @@ impl WizardState {
                 num_ocean_levels: self.num_ocean_levels,
                 num_command_centers: self.num_command_centers,
                 num_resource_pulls: self.num_resource_pulls,
+                wall_magnetism: self.wall_magnetism,
                 completed_step: self.completed_step,
                 current_step: self.current_step as i32,
                 hill_drawing_mode: match self.hill_drawing_mode {
@@ -349,6 +351,7 @@ pub struct SnapshotMeta {
     pub num_ocean_levels: i32,
     pub num_command_centers: i32,
     pub num_resource_pulls: i32,
+    pub wall_magnetism: i32,
     pub completed_step: i32,
     pub current_step: i32,
     pub hill_drawing_mode: String,

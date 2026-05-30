@@ -143,6 +143,9 @@ pub fn rpc_call(method: &str, params_json: &str) -> Result<JsValue, JsValue> {
                 if let Some(levels) = get_i32(&params, &["oceanLevels", "num_ocean_levels"]) {
                     state.num_ocean_levels = levels;
                 }
+                if let Some(mag) = get_i32(&params, &["wallMagnetism", "wall_magnetism"]) {
+                    state.wall_magnetism = mag.clamp(0, 100);
+                }
                 let seed = get_i32(&params, &["seed"]);
                 state.invalidate_from(WizardStep::HeightOcean);
                 pipeline::run_height_ocean(&mut state, seed)?;
@@ -336,6 +339,9 @@ fn apply_common_generation_params(state: &mut WizardState, params: &Value) {
     }
     if let Some(levels) = get_i32(params, &["oceanLevels", "num_ocean_levels"]) {
         state.num_ocean_levels = levels;
+    }
+    if let Some(mag) = get_i32(params, &["wallMagnetism", "wall_magnetism"]) {
+        state.wall_magnetism = mag.clamp(0, 100);
     }
     if let Some(players) = get_i32(params, &["numPlayers", "num_command_centers"]) {
         state.num_command_centers = players;
