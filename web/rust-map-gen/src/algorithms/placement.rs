@@ -129,6 +129,23 @@ fn mirror_command_centers(
     for (y, x) in selected_positions {
         let sy = (*y as f64 * scale_y) as usize;
         let sx = (*x as f64 * scale_x) as usize;
+
+        if mirroring == "none" {
+            // No mirror to pair against, so distribute players across both teams
+            // ourselves. RW assigns teams by player parity (P1/P3 vs P2/P4), so we
+            // alternate Team A (101-105) and Team B (106-110) slots. This yields
+            // player labels 1,2,3,4… and balanced teams instead of 1,3,5,7 all on A.
+            let team = slot % 2;
+            let pair = slot / 2;
+            units.set(
+                sy.min(units.rows - 1),
+                sx.min(units.cols - 1),
+                101 + pair + team * 5,
+            );
+            slot += 1;
+            continue;
+        }
+
         units.set(sy.min(units.rows - 1), sx.min(units.cols - 1), 101 + slot);
 
         let mirrors = get_mirrors_for_mode(*y, *x, height, width, mirroring);
